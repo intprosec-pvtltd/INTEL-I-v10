@@ -1,0 +1,13 @@
+from alembic import op
+import sqlalchemy as sa
+revision="c4d9f0a1b2c3"
+down_revision="b8e41f7c2a91"
+branch_labels=None
+depends_on=None
+def upgrade():
+    op.create_table("person_watchlist_entries",sa.Column("id",sa.BigInteger(),primary_key=True,autoincrement=True),sa.Column("user_id",sa.Integer(),nullable=False),sa.Column("full_name",sa.String(150),nullable=False),sa.Column("category",sa.String(30),nullable=False),sa.Column("status",sa.String(30),nullable=False),sa.Column("description",sa.Text()),sa.Column("source",sa.String(150)),sa.Column("external_reference",sa.String(150)),sa.Column("embedding_encrypted",sa.LargeBinary(),nullable=False),sa.Column("embedding_dimension",sa.Integer(),nullable=False),sa.Column("face_model",sa.String(150),nullable=False),sa.Column("face_model_version",sa.String(100),nullable=False),sa.Column("metadata",sa.JSON()),sa.Column("created_at",sa.DateTime(),nullable=False),sa.Column("updated_at",sa.DateTime(),nullable=False),sa.ForeignKeyConstraint(["user_id"],["users.id"],ondelete="CASCADE"))
+    op.create_index("idx_person_watchlist_user_status","person_watchlist_entries",["user_id","status"]);op.create_index("idx_person_watchlist_user_category","person_watchlist_entries",["user_id","category"])
+    op.create_table("incident_evidence",sa.Column("id",sa.BigInteger(),primary_key=True,autoincrement=True),sa.Column("incident_id",sa.Integer(),nullable=False),sa.Column("user_id",sa.Integer(),nullable=False),sa.Column("alert_id",sa.Integer()),sa.Column("snapshot_id",sa.Integer()),sa.Column("evidence_type",sa.String(50),nullable=False),sa.Column("object_type",sa.String(30)),sa.Column("object_reference",sa.String(150)),sa.Column("description",sa.Text()),sa.Column("metadata",sa.JSON()),sa.Column("created_at",sa.DateTime(),nullable=False),sa.ForeignKeyConstraint(["incident_id"],["incidents.id"],ondelete="CASCADE"),sa.ForeignKeyConstraint(["user_id"],["users.id"],ondelete="CASCADE"),sa.ForeignKeyConstraint(["alert_id"],["alerts.id"],ondelete="SET NULL"),sa.ForeignKeyConstraint(["snapshot_id"],["snapshots.id"],ondelete="SET NULL"))
+    op.create_index("idx_incident_evidence_user_incident","incident_evidence",["user_id","incident_id"]);op.create_index("idx_incident_evidence_user_type","incident_evidence",["user_id","evidence_type"])
+def downgrade():
+    op.drop_index("idx_incident_evidence_user_type",table_name="incident_evidence");op.drop_index("idx_incident_evidence_user_incident",table_name="incident_evidence");op.drop_table("incident_evidence");op.drop_index("idx_person_watchlist_user_category",table_name="person_watchlist_entries");op.drop_index("idx_person_watchlist_user_status",table_name="person_watchlist_entries");op.drop_table("person_watchlist_entries")

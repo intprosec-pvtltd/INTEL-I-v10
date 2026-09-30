@@ -1,0 +1,161 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: triton
+  namespace: intel-i
+  labels: &id001
+    app: triton
+    app.kubernetes.io/part-of: intel-i
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: triton
+  template:
+    metadata:
+      labels: *id001
+    spec:
+      nodeSelector:
+        intel-i/node: single-l40s
+      runtimeClassName: nvidia
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        fsGroup: 65532
+      containers:
+      - name: triton
+        image: intel-i-runtime:triton-v1
+        envFrom:
+        - configMapRef:
+            name: intel-i-config
+        - secretRef:
+            name: intel-i-secrets
+        env:
+        - name: INTEL_I_TRITON_GRPC_URL
+          value: localhost:8001
+        - name: INFERENCE_GPU_REQUIRED
+          value: 'true'
+        ports:
+        - name: http
+          containerPort: 8000
+        - name: grpc
+          containerPort: 8001
+        - name: metrics
+          containerPort: 8002
+        resources:
+          requests:
+            cpu: '4'
+            memory: 12Gi
+          limits:
+            cpu: '16'
+            memory: 40Gi
+            nvidia.com/gpu: 1
+        volumeMounts:
+        - name: models
+          mountPath: /app/models
+          readOnly: true
+        - name: vendor
+          mountPath: /app/vendor
+          readOnly: true
+        - name: cache
+          mountPath: /app/object-cache
+        - name: shm
+          mountPath: /dev/shm
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        startupProbe:
+          httpGet:
+            path: /v2/health/live
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 120
+        livenessProbe:
+          httpGet:
+            path: /v2/health/live
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /v2/health/ready
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      volumes:
+      - name: models
+        hostPath:
+          path: /var/lib/intel-i/models
+          type: Directory
+      - name: vendor
+        hostPath:
+          path: /var/lib/intel-i/vendor
+          type: Directory
+      - name: cache
+        emptyDir:
+          sizeLimit: 10Gi
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: triton
+  namespace: intel-i
+  labels:
+    app: triton
+    app.kubernetes.io/part-of: intel-i
+spec:
+  selector:
+    app: triton
+  ports:
+  - name: http
+    port: 8000
+    targetPort: http
+  - name: grpc
+    port: 8001
+    targetPort: grpc
+  - name: metrics
+    port: 8002
+    targetPort: metrics
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-internal-triton
+  namespace: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: triton
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/part-of: intel-i
+    ports:
+    - protocol: TCP
+      port: 8001
+    - protocol: TCP
+      port: 8000
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8002

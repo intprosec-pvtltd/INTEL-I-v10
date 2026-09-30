@@ -1,0 +1,105 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intel-i-api
+  namespace: intel-i
+  labels:
+    app: intel-i-api
+    app.kubernetes.io/part-of: intel-i
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: intel-i-api
+  template:
+    metadata:
+      labels:
+        app: intel-i-api
+        app.kubernetes.io/part-of: intel-i
+    spec:
+      nodeSelector:
+        intel-i/node: single-l40s
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+      - name: api
+        image: intel-i-api:aws-20260920-k8s1
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: intel-i-config
+        - secretRef:
+            name: intel-i-secrets
+        env:
+        - name: INTEL_I_PROCESS_ROLE
+          value: api
+        ports:
+        - name: http
+          containerPort: 3000
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            memory: 3Gi
+        volumeMounts:
+        - name: cache
+          mountPath: /app/object-cache
+        - name: probes
+          mountPath: /opt/intel-i-probes
+          readOnly: true
+        startupProbe:
+          httpGet:
+            path: /health/live
+            port: 3000
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 3000
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 3000
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: cache
+        emptyDir:
+          sizeLimit: 10Gi
+      - name: probes
+        configMap:
+          name: intel-i-probes
+      enableServiceLinks: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: intel-i-api
+  namespace: intel-i
+  labels:
+    app: intel-i-api
+    app.kubernetes.io/part-of: intel-i
+spec:
+  selector:
+    app: intel-i-api
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
+
+

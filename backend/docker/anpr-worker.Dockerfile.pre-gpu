@@ -1,0 +1,11 @@
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+ENV DEBIAN_FRONTEND=noninteractive PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends python3.11 python3-pip libgl1 libglib2.0-0 curl && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt /tmp/all-requirements.txt
+RUN sed '/^torch/d;/^torchvision/d;/^torchaudio/d;/^ultralytics/d;/^onnxruntime/d;/^--extra-index-url/d' /tmp/all-requirements.txt > /tmp/requirements.txt && pip3 install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/*requirements.txt
+COPY . .
+RUN python3 -m compileall -q .
+USER 65532:65532
+EXPOSE 9201
+CMD ["python3", "-m", "workers.anpr_ocr_worker"]

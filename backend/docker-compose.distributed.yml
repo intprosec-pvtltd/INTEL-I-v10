@@ -1,0 +1,75 @@
+name: intel-i-distributed
+x-common: &common
+  env_file: [.env]
+  restart: unless-stopped
+  networks: [intel_i_backend]
+
+services:
+  api:
+    <<: *common
+    build: {context: ., dockerfile: docker/api.Dockerfile}
+    environment:
+      INTEL_I_PROCESS_ROLE: api
+      INTEL_I_DISTRIBUTED_CAMERA_WORKERS: "true"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cctv_db}
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      MINIO_ENDPOINT: minio:9000
+    ports: ["127.0.0.1:${INTEL_I_API_PORT:-3000}:3000"]
+
+  camera-worker-01:
+    <<: *common
+    build: {context: ., dockerfile: docker/camera-worker.Dockerfile}
+    gpus: all
+    environment:
+      INTEL_I_PROCESS_ROLE: camera-worker
+      INTEL_I_WORKER_ID: camera-worker-01
+      INTEL_I_MAX_CAMERAS_PER_WORKER: ${INTEL_I_MAX_CAMERAS_PER_WORKER:-2}
+      INTEL_I_WORKER_PREVIEW_ADVERTISE_URL: http://camera-worker-01:9101
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cctv_db}
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      ANPR_OCR_REMOTE_URL: http://anpr-worker:9201
+      FRS_REMOTE_URL: http://frs-worker:9202
+      FRS_REQUIRED: "true"
+    depends_on:
+      anpr-worker: {condition: service_healthy}
+      frs-worker: {condition: service_healthy}
+
+  anpr-worker:
+    <<: *common
+    build: {context: ., dockerfile: docker/anpr-worker.Dockerfile}
+    gpus: all
+    environment:
+      ANPR_OCR_WORKER_HOST: 0.0.0.0
+      ANPR_OCR_WORKER_PORT: "9201"
+      ANPR_OCR_DEVICE: cuda
+      ANPR_AWIROS_STRICT_DEVICE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -H 'X-Intel-I-OCR-Token: $$ANPR_OCR_INTERNAL_TOKEN' http://127.0.0.1:9201/internal/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  frs-worker:
+    <<: *common
+    build: {context: ., dockerfile: docker/frs-worker.Dockerfile}
+    gpus: all
+    environment:
+      FRS_HOST: 0.0.0.0
+      FRS_PORT: "9202"
+      FRS_CUDA_REQUIRED: "true"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cctv_db}
+      FRS_WATCHLIST_SYNC_SECONDS: ${FRS_WATCHLIST_SYNC_SECONDS:-15}
+    volumes:
+      - ./models:/app/models:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -H 'X-Intel-I-FRS-Token: $$FRS_INTERNAL_TOKEN' http://127.0.0.1:9202/internal/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+networks:
+  intel_i_backend:
+    name: intel_i_backend
+    external: true

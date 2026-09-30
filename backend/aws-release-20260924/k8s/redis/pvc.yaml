@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: intel-i
+  labels:
+    app: redis-data
+    app.kubernetes.io/part-of: intel-i
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: intel-i-local
+  volumeName: intel-i-redis
+  resources:
+    requests:
+      storage: 5Gi

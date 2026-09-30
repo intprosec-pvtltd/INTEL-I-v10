@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: camera-worker
+  namespace: intel-i
+  labels:
+    app: camera-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: camera-worker
+  template:
+    metadata:
+      labels:
+        app: camera-worker
+        app.kubernetes.io/part-of: intel-i
+    spec:
+      nodeSelector:
+        intel-i/node: single-l40s
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+      - name: camera-worker
+        image: intel-i-camera-worker:aws-20260920-k8s1
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: intel-i-config
+        - secretRef:
+            name: intel-i-secrets
+        env:
+        - name: INTEL_I_PROCESS_ROLE
+          value: camera-worker
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        ports:
+        - name: internal
+          containerPort: 9101
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 3Gi
+          limits:
+            memory: 12Gi
+        volumeMounts:
+        - name: cache
+          mountPath: /app/object-cache
+        - name: probes
+          mountPath: /opt/intel-i-probes
+          readOnly: true
+        command:
+        - python
+        - -m
+        - workers.camera_worker
+        startupProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - 'curl --fail --silent --show-error --max-time 3 -H "X-Intel-I-Worker-Token:
+              $INTEL_I_WORKER_PREVIEW_TOKEN" http://127.0.0.1:9101/internal/health
+              >/dev/null'
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 120
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - 'body=$(curl --fail --silent --show-error --max-time 3 -H "X-Intel-I-Worker-Token:
+              $INTEL_I_WORKER_PREVIEW_TOKEN" http://127.0.0.1:9101/internal/health);
+              printf "%s" "$body" | python /opt/intel-i-probes/check-health.py'
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - 'curl --fail --silent --show-error --max-time 3 -H "X-Intel-I-Worker-Token:
+              $INTEL_I_WORKER_PREVIEW_TOKEN" http://127.0.0.1:9101/internal/health
+              >/dev/null'
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 6
+      volumes:
+      - name: cache
+        emptyDir:
+          sizeLimit: 10Gi
+      - name: probes
+        configMap:
+          name: intel-i-probes
+      enableServiceLinks: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: camera-worker
+  namespace: intel-i
+  labels:
+    app: camera-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  selector:
+    app: camera-worker
+  ports:
+  - name: internal
+    port: 9101
+    targetPort: 9101
+
+

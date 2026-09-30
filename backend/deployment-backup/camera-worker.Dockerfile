@@ -1,0 +1,12 @@
+﻿FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+ENV DEBIAN_FRONTEND=noninteractive PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 INTEL_I_PROCESS_ROLE=camera-worker
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip ffmpeg libgl1 libglib2.0-0 libmagic1 curl && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt /tmp/all-requirements.txt
+RUN sed '/^paddle/d;/^paddlex/d' /tmp/all-requirements.txt > /tmp/requirements.txt && pip3 install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/*requirements.txt
+COPY . .
+RUN python3 -m compileall -q .
+USER 65532:65532
+EXPOSE 9101
+CMD ["python3", "-m", "workers.camera_worker"]
+

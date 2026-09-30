@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+import pathlib,sys,yaml
+r=pathlib.Path(__file__).resolve().parents[1]
+docs=[]
+for f in r.rglob('*.yaml'):
+ if '.local.' in f.name:continue
+ for d in yaml.safe_load_all(f.read_text()):
+  if d is not None:
+   assert isinstance(d,dict),str(f)
+   docs.append((f,d))
+k=yaml.safe_load((r/'kustomization.yaml').read_text())
+for f in k['resources']:assert (r/f).is_file(),f
+active=[d for f,d in docs if str(f.relative_to(r)) in k['resources']]
+assert not any(d.get('kind')=='HorizontalPodAutoscaler' for d in active)
+gpus=0
+for d in active:
+ if d.get('kind')!='Deployment':continue
+ assert d['spec']['replicas']==1
+ assert d['spec']['strategy']['type']=='Recreate'
+ s=d['spec']['template']['spec']
+ assert s['nodeSelector']=={'intel-i/node':'single-l40s'}
+ assert d['spec']['selector']['matchLabels'].items()<=d['spec']['template']['metadata']['labels'].items()
+ for c in s['containers']:
+  assert all(p in c for p in ['startupProbe','readinessProbe','livenessProbe'])
+  g=c['resources'].get('limits',{}).get('nvidia.com/gpu')
+  if g:
+   assert str(g)=='1' and str(c['resources']['requests']['nvidia.com/gpu'])=='1'
+   assert s['runtimeClassName']=='nvidia';gpus+=1
+assert gpus==3
+anpr=next(yaml.safe_load_all((r/"anpr-worker/deployment.yaml").read_text()))
+assert anpr["spec"]["template"]["spec"]["containers"][0]["command"] == ["python", "-m", "workers.anpr_ocr_worker"]
+assert all(isinstance(v,str) for v in yaml.safe_load((r/'configmaps/platform.yaml').read_text())['data'].values())
+print(f'PASS: {len(docs)} YAML documents; resource paths, replicas, probes, selectors and 3 GPU requests checked.')
+print('This is static validation, not Kubernetes API-server or live application validation.')

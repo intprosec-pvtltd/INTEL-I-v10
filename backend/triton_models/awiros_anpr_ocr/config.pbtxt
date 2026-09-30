@@ -1,0 +1,7 @@
+name: "awiros_anpr_ocr"
+backend: "python"
+max_batch_size: 1
+input [{ name: "REQUEST" data_type: TYPE_STRING dims: [1] }]
+output [{ name: "RESPONSE" data_type: TYPE_STRING dims: [1] }]
+instance_group [{ count: 1 kind: KIND_GPU gpus: [0] }]
+# Existing Awiros adapter is single-crop. Do not advertise false batching.

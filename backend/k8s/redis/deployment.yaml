@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: intel-i
+  labels:
+    app: redis
+    app.kubernetes.io/part-of: intel-i
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+        app.kubernetes.io/part-of: intel-i
+    spec:
+      nodeSelector:
+        intel-i/node: single-l40s
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: redis
+        image: redis:7.4.2-alpine
+        command:
+        - redis-server
+        - --appendonly
+        - 'yes'
+        - --maxmemory
+        - 512mb
+        - --maxmemory-policy
+        - noeviction
+        ports:
+        - containerPort: 6379
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 1Gi
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - redis-cli ping | grep -qx PONG
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - redis-cli ping | grep -qx PONG
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 6
+        startupProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - redis-cli ping | grep -qx PONG
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 60
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: redis-data
+      enableServiceLinks: false

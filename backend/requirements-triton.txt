@@ -1,0 +1,3 @@
+# Install alongside the existing runtime requirements in an isolated environment.
+tritonclient[grpc]
+onnx

@@ -1,0 +1,130 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anpr-worker
+  namespace: intel-i
+  labels:
+    app: anpr-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: anpr-worker
+  template:
+    metadata:
+      labels:
+        app: anpr-worker
+        app.kubernetes.io/part-of: intel-i
+    spec:
+      nodeSelector:
+        intel-i/node: single-l40s
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+      - name: anpr
+        image: intel-i-anpr-worker:aws-20260920-k8s1
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: intel-i-config
+        - secretRef:
+            name: intel-i-secrets
+        env:
+        - name: INTEL_I_PROCESS_ROLE
+          value: anpr-worker
+        - name: ANPR_OCR_WORKER_HOST
+          value: 0.0.0.0
+        - name: ANPR_OCR_WORKER_PORT
+          value: '9201'
+        - name: ANPR_OCR_DEVICE
+          value: cuda
+        - name: ANPR_AWIROS_STRICT_DEVICE
+          value: 'true'
+        ports:
+        - name: internal
+          containerPort: 9201
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+            nvidia.com/gpu: '1'
+          limits:
+            memory: 8Gi
+            nvidia.com/gpu: '1'
+        volumeMounts:
+        - name: cache
+          mountPath: /app/object-cache
+        - name: probes
+          mountPath: /opt/intel-i-probes
+          readOnly: true
+        command:
+        - python
+        - -m
+        - workers.anpr_ocr_worker
+        startupProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - 'curl --fail --silent --show-error --max-time 3 -H "X-Intel-I-OCR-Token:
+              $ANPR_OCR_INTERNAL_TOKEN" http://127.0.0.1:9201/internal/health >/dev/null'
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 120
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - 'body=$(curl --fail --silent --show-error --max-time 3 -H "X-Intel-I-OCR-Token:
+              $ANPR_OCR_INTERNAL_TOKEN" http://127.0.0.1:9201/internal/health); printf
+              "%s" "$body" | python /opt/intel-i-probes/check-health.py'
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - 'curl --fail --silent --show-error --max-time 3 -H "X-Intel-I-OCR-Token:
+              $ANPR_OCR_INTERNAL_TOKEN" http://127.0.0.1:9201/internal/health >/dev/null'
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 6
+      volumes:
+      - name: cache
+        emptyDir:
+          sizeLimit: 10Gi
+      - name: probes
+        configMap:
+          name: intel-i-probes
+      runtimeClassName: nvidia
+      enableServiceLinks: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: anpr-worker
+  namespace: intel-i
+  labels:
+    app: anpr-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  selector:
+    app: anpr-worker
+  ports:
+  - name: internal
+    port: 9201
+    targetPort: 9201
+
+

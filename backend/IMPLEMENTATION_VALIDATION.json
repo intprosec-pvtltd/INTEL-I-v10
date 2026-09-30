@@ -1,0 +1,18 @@
+{
+  "validated_at": "2026-08-31",
+  "backend_python_syntax": "PASS",
+  "frontend_javascript_jsx_syntax": "PASS",
+  "frontend_lint": {
+    "status": "PASS_WITH_WARNINGS",
+    "errors": 0,
+    "warnings": 53,
+    "note": "Warnings are inherited React compiler-adoption and unused-symbol debt; new PersonJourney page passes lint independently."
+  },
+  "ollama_only_cannot_confirm_plate": "PASS",
+  "ppocr_temporal_ollama_fusion": "PASS",
+  "three_camera_person_correlation_preflight": "PASS",
+  "three_camera_vehicle_correlation": "RUN_ON_CONFIGURED_BACKEND_ENVIRONMENT",
+  "live_gis_websocket": "RUN_ON_DEPLOYED_AUTHENTICATED_ENVIRONMENT",
+  "gpu_ollama_models": "RUN_ON_TARGET_NVIDIA_HOST",
+  "real_cctv_accuracy": "RUN_WITH_REAL_INDIAN_CCTV_INPUTS"
+}

@@ -1,0 +1,105 @@
+--- /tmp/orig/vehicleANPR.py	2026-09-17 10:15:21.158130105 +0000
++++ /tmp/new/vehicleANPR.py	2026-09-17 10:15:21.159129951 +0000
+@@ -20,6 +20,7 @@
+ from services.plateFusion import fuse_plate_candidates
+ from services.anprAdaptivePreprocess import build_adaptive_variants
+ from services.awirosOcr import AwirosOCR
++from services.anprOcrClient import RemoteAwirosOCR
+ 
+ 
+ # ============================================================
+@@ -262,6 +263,19 @@
+     "ANPR_AWIROS_STRICT_DEVICE", "false"
+ ).strip().lower() in {"1", "true", "yes", "on"}
+ 
++ANPR_OCR_REMOTE_ENABLED = os.getenv(
++    "ANPR_OCR_REMOTE_ENABLED", "false"
++).strip().lower() in {"1", "true", "yes", "on"}
++ANPR_OCR_REMOTE_URL = os.getenv(
++    "ANPR_OCR_REMOTE_URL", "http://127.0.0.1:9201"
++).strip().rstrip("/")
++ANPR_OCR_REMOTE_TIMEOUT_SECONDS = _env_float(
++    "ANPR_OCR_REMOTE_TIMEOUT_SECONDS", 2.0, 0.1, 30.0
++)
++ANPR_OCR_INTERNAL_TOKEN = os.getenv(
++    "ANPR_OCR_INTERNAL_TOKEN", ""
++).strip()
++
+ OCR_INPUT_HEIGHT = max(32, _env_int("ANPR_OCR_INPUT_HEIGHT", 48, 32, 128))
+ OCR_INPUT_WIDTH = max(128, _env_int("ANPR_OCR_INPUT_WIDTH", 320, 128, 1024))
+ OCR_CPU_THREADS = max(1, _env_int("ANPR_OCR_CPU_THREADS", 4, 1, 32))
+@@ -1186,19 +1200,30 @@
+ 
+         try:
+             if OCR_ENGINE == "awiros_paddle":
+-                engine = AwirosOCR(
+-                    weights_path=AWIROS_MODEL_PATH,
+-                    dictionary_path=AWIROS_DICT_PATH,
+-                    paddleocr_dir=AWIROS_PADDLEOCR_DIR,
+-                    device=OCR_DEVICE,
+-                    strict_device=AWIROS_STRICT_DEVICE,
+-                ).load()
++                if ANPR_OCR_REMOTE_ENABLED:
++                    engine = RemoteAwirosOCR(
++                        base_url=ANPR_OCR_REMOTE_URL,
++                        token=ANPR_OCR_INTERNAL_TOKEN,
++                        timeout_seconds=ANPR_OCR_REMOTE_TIMEOUT_SECONDS,
++                    ).load()
++                    model_path_label = "remote-worker"
++                else:
++                    engine = AwirosOCR(
++                        weights_path=AWIROS_MODEL_PATH,
++                        dictionary_path=AWIROS_DICT_PATH,
++                        paddleocr_dir=AWIROS_PADDLEOCR_DIR,
++                        device=OCR_DEVICE,
++                        strict_device=AWIROS_STRICT_DEVICE,
++                    ).load()
++                    model_path_label = AWIROS_MODEL_PATH.name
++
+                 _ocr_engine = engine
+                 _ocr_engine_version = engine.version + "/" + engine.actual_device
+                 _anpr_log(
+                     "OCR_MODEL_READY engine=Awiros-ANPR-OCR "
+                     f"device={engine.actual_device} "
+-                    f"model_path={AWIROS_MODEL_PATH.name}"
++                    f"model_path={model_path_label} "
++                    f"remote={ANPR_OCR_REMOTE_ENABLED}"
+                 )
+                 return engine
+ 
+@@ -4555,12 +4580,18 @@
+         )
+ 
+     if OCR_ENGINE == "awiros_paddle":
+-        if not AWIROS_MODEL_PATH.exists():
+-            errors.append("Awiros model.safetensors file does not exist")
+-        if not AWIROS_DICT_PATH.exists():
+-            errors.append("Awiros en_dict.txt file does not exist")
+-        if not (AWIROS_PADDLEOCR_DIR / "ppocr" / "__init__.py").is_file():
+-            errors.append("Reviewed PaddleOCR source tree does not exist")
++        if ANPR_OCR_REMOTE_ENABLED:
++            if not ANPR_OCR_REMOTE_URL:
++                errors.append("ANPR_OCR_REMOTE_URL is required for remote Awiros OCR")
++            if len(ANPR_OCR_INTERNAL_TOKEN) < 32:
++                errors.append("ANPR_OCR_INTERNAL_TOKEN must be at least 32 characters")
++        else:
++            if not AWIROS_MODEL_PATH.exists():
++                errors.append("Awiros model.safetensors file does not exist")
++            if not AWIROS_DICT_PATH.exists():
++                errors.append("Awiros en_dict.txt file does not exist")
++            if not (AWIROS_PADDLEOCR_DIR / "ppocr" / "__init__.py").is_file():
++                errors.append("Reviewed PaddleOCR source tree does not exist")
+     else:
+         if not OCR_ONNX_MODEL_PATH.exists():
+             errors.append("PP-OCRv5 ONNX model file does not exist")
+@@ -4591,6 +4622,10 @@
+ 
+         "awiros_paddleocr_dir": str(AWIROS_PADDLEOCR_DIR),
+ 
++        "ocr_remote_enabled": ANPR_OCR_REMOTE_ENABLED,
++
++        "ocr_remote_url": ANPR_OCR_REMOTE_URL if ANPR_OCR_REMOTE_ENABLED else None,
++
+         "ocr_onnx_model":
+             str(OCR_ONNX_MODEL_PATH),
+ 

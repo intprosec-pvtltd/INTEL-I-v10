@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: intel-i
+  labels:
+    app: minio-data
+    app.kubernetes.io/part-of: intel-i
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: intel-i-local
+  volumeName: intel-i-minio
+  resources:
+    requests:
+      storage: 50Gi

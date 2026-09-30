@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+
+:root {
+  --bg: #07111d;
+  --s1: #0c1929;
+  --s2: #101f30;
+  --s3: #162840;
+  --bd: #1a3050;
+  --bd2: #224068;
+  --acc: #2563eb;
+  --acc2: #3b82f6;
+  --acc3: #60a5fa;
+  --txt: #dde6f0;
+  --mut: #56748a;
+  --mut2: #8fafc4;
+  --crit: #ef4444;
+  --high: #f97316;
+  --med: #eab308;
+  --low: #22c55e;
+  --biz: #06b6d4;
+  --crowd: #a855f7;
+}
+
+html,
+body {
+  height: 100%;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: #0d2038;
+  color: var(--txt);
+  font-size: 13px;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px
+}
+
+::-webkit-scrollbar-track {
+  background: transparent
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bd2);
+  border-radius: 2px
+}

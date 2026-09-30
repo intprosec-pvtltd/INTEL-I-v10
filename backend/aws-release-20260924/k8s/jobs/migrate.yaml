@@ -1,0 +1,42 @@
+﻿apiVersion: batch/v1
+kind: Job
+metadata:
+  name: intel-i-migrate
+  namespace: intel-i
+  labels:
+    app: intel-i-migrate
+    app.kubernetes.io/part-of: intel-i
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app: intel-i-migrate
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      nodeSelector:
+        intel-i/node: single-l40s
+      containers:
+      - name: migrate
+        image: intel-i-api:aws-20260920-k8s1
+        command:
+        - python
+        - -m
+        - alembic
+        - upgrade
+        - head
+        envFrom:
+        - configMapRef:
+            name: intel-i-config
+        - secretRef:
+            name: intel-i-secrets
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 1Gi
+      enableServiceLinks: false
+

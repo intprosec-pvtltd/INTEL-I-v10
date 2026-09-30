@@ -1,0 +1,8 @@
+runtimeClassName: nvidia
+nodeSelector:
+  intel-i/node: single-l40s
+config:
+  name: intel-i-time-slicing
+  default: single-l40s
+gfd:
+  enabled: false

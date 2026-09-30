@@ -1,0 +1,48 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: camera-onboarding-worker
+  namespace: intel-i
+  labels:
+    app: camera-onboarding-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: camera-onboarding-worker
+  template:
+    metadata:
+      labels:
+        app: camera-onboarding-worker
+        app.kubernetes.io/part-of: intel-i
+    spec:
+      nodeSelector:
+        intel-i/node: single-l40s
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: onboarding
+        image: intel-i-api:aws-20260920-k8s1
+        command:
+        - python
+        - -m
+        - workers.camera_onboarding_worker
+        envFrom:
+        - configMapRef:
+            name: intel-i-config
+        - secretRef:
+            name: intel-i-secrets
+        env:
+        - name: INTEL_I_PROCESS_ROLE
+          value: camera-onboarding-worker
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 1Gi
+      enableServiceLinks: false
+

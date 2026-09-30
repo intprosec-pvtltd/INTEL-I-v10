@@ -1,0 +1,40 @@
+[
+  {
+    "gate": "required_phase_0_9_files",
+    "status": "PASS",
+    "missing": []
+  },
+  {
+    "gate": "automated_regression_tests",
+    "status": "PASS",
+    "output": "...............................                                          [100%]\n31 passed in 0.76s\n",
+    "error": ""
+  },
+  {
+    "gate": "alembic_single_head",
+    "status": "PASS",
+    "heads": [
+      "d4f6a8c2e1b9"
+    ]
+  },
+  {
+    "gate": "real_nvidia_tensorRT",
+    "status": "RUN_REQUIRED_ON_TARGET_HOST",
+    "note": "Requires target NVIDIA GPU, validated TensorRT engines and real deployment models."
+  },
+  {
+    "gate": "real_50_camera_rtsp",
+    "status": "RUN_REQUIRED_ON_TARGET_HOST",
+    "note": "Requires real RTSP/NVR/VMS sources; local-file benchmark is not acceptance evidence."
+  },
+  {
+    "gate": "websocket_disconnect_recovery",
+    "status": "AUTOMATED_CONTRACT_PRESENT",
+    "note": "Run live kill/reconnect test against deployed API/frontend."
+  },
+  {
+    "gate": "transactional_outbox",
+    "status": "AUTOMATED_CONTRACT_PRESENT",
+    "note": "Alert + outbox are committed in one DB transaction; Kafka delivery acknowledgement is awaited."
+  }
+]

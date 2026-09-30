@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kafka-data
+  namespace: intel-i
+  labels:
+    app: kafka-data
+    app.kubernetes.io/part-of: intel-i
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: intel-i-local
+  volumeName: intel-i-kafka
+  resources:
+    requests:
+      storage: 20Gi

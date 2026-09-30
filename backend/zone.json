@@ -1,0 +1,40 @@
+{
+  "CAM_01": [
+    {
+      "name": "public_monitoring_zone",
+      "type": "normal",
+      "points": [[0, 0], [960, 0], [960, 540], [0, 540]],
+      "rules": [
+        "Sudden Running",
+        "Close Interaction",
+        "Loitering",
+        "Repeated Entry Exit",
+        "Suspicious Behaviour",
+        "Following Behaviour",
+        "Suspicious Escalation",
+        "Chain Snatching Risk",
+        "Face Covered Walking",
+        "Abandoned Object",
+        "Fighting",
+        "Gun Handling",
+        "Knife Handling",
+        "Theft / Robbery",
+        "Assault Risk",
+        "Fall Emergency",
+        "Crime Activity"
+      ]
+    },
+    {
+      "name": "restricted_entry_zone",
+      "type": "restricted",
+      "points": [[50, 50], [300, 50], [300, 250], [50, 250]],
+      "rules": [
+        "Perimeter Breach",
+        "Repeated Entry Exit",
+        "Face Covered Walking",
+        "Suspicious Behaviour",
+        "Suspicious Escalation"
+      ]
+    }
+  ]
+}

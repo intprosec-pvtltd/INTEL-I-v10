@@ -1,0 +1,15 @@
+name: "intel_i_pipeline"
+backend: "python"
+max_batch_size: 16
+input [{ name: "REQUEST" data_type: TYPE_STRING dims: [1] }]
+output [{ name: "RESPONSE" data_type: TYPE_STRING dims: [1] }]
+instance_group [{ count: 1 kind: KIND_GPU gpus: [0] }]
+dynamic_batching {
+  preferred_batch_size: [4, 8, 16]
+  max_queue_delay_microseconds: 5000
+  default_queue_policy {
+    max_queue_size: 100
+    timeout_action: REJECT
+    default_timeout_microseconds: 500000
+  }
+}

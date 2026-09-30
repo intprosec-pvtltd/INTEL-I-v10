@@ -1,0 +1,1390 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference-worker
+  namespace: intel-i
+  labels:
+    app: inference-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: inference-worker
+  template:
+    metadata:
+      labels:
+        app: inference-worker
+        app.kubernetes.io/part-of: intel-i
+    spec:
+      nodeSelector:
+        intel-i/node: single-l40s
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+      - name: inference-worker
+        image: intel-i-runtime:triton-v1
+        imagePullPolicy: IfNotPresent
+        command:
+        - python
+        - -m
+        - workers.inference_worker
+        envFrom:
+        - configMapRef:
+            name: intel-i-config
+        - secretRef:
+            name: intel-i-secrets
+        env:
+        - name: INTEL_I_PROCESS_ROLE
+          value: inference-worker
+        - name: INFERENCE_GPU_REQUIRED
+          value: 'false'
+        - name: CUDA_VISIBLE_DEVICES
+          value: ''
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: void
+        ports:
+        - name: http
+          containerPort: 9300
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+          limits:
+            cpu: '8'
+            memory: 24Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        startupProbe:
+          httpGet:
+            path: /health/live
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+      enableServiceLinks: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference-worker
+  namespace: intel-i
+  labels:
+    app: inference-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  selector:
+    app: inference-worker
+  ports:
+  - name: http
+    port: 9300
+    targetPort: http
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: intel-i
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: intel-i-config
+  namespace: intel-i
+  labels:
+    app: intel-i-config
+    app.kubernetes.io/part-of: intel-i
+data:
+  CENTRAL_INFERENCE_ENABLED: 'true'
+  INFERENCE_PROCESS_SPLIT_ENABLED: 'true'
+  AI_BATCHING_ENABLED: 'true'
+  INFERENCE_SERVICE_URL: http://inference-worker:9300
+  CAMERA_SOURCE_FPS: '25'
+  PREVIEW_FPS: '12'
+  IDLE_DETECTION_FPS: '2'
+  ACTIVE_DETECTION_FPS: '5'
+  INCIDENT_DETECTION_FPS: '8'
+  CRITICAL_DETECTION_FPS: '10'
+  TENSORRT_ENABLED: 'false'
+  TENSORRT_PRECISION: fp16
+  PRIMARY_DETECTOR_TENSORRT_ENGINE: ''
+  GPU_PREPROCESSING_ENABLED: 'false'
+  CAMERA_LOAD_BALANCING_ENABLED: 'true'
+  INFERENCE_PRIORITY_AGING_SECONDS: '2'
+  INFERENCE_MAX_FRAME_BYTES: '8388608'
+  INFERENCE_REQUIRE_INTERNAL_TOKEN: 'true'
+  FRS_FULL_FRAME_FALLBACK_ENABLED: 'false'
+  DARKIR_PRIMARY_DETECTION_ENABLED: 'false'
+  TRACK_CACHE_TTL_SECONDS: '30'
+  TRACK_CACHE_QUALITY_IMPROVEMENT: '0.08'
+  BEHAVIOUR_FPS: '3'
+  FRS_MAX_FPS: '2'
+  ANPR_MAX_FPS: '3'
+  REID_INTERVAL_SECONDS: '2'
+  INFERENCE_BATCH_SIZE: '16'
+  INFERENCE_BATCH_WAIT_MS: '20'
+  CAMERA_FRAME_QUEUE_SIZE: '2'
+  GPU_QUEUE_MAX_SIZE: '100'
+  VIDEO_HW_DECODE_ENABLED: 'false'
+  VIDEO_DECODE_DEVICE: auto
+  ADAPTIVE_FPS_ENABLED: 'true'
+  PRIORITY_INFERENCE_ENABLED: 'true'
+  INFERENCE_BACKPRESSURE_ENABLED: 'true'
+  ENV: prod
+  INTEL_I_DISTRIBUTED_CAMERA_WORKERS: 'true'
+  INTEL_I_MAX_CAMERAS_PER_WORKER: '10'
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: '5432'
+  POSTGRES_DB: cctv_db
+  POSTGRES_USER: postgres
+  REDIS_ENABLED: 'true'
+  REDIS_URL: redis://redis:6379/0
+  KAFKA_ENABLED: 'true'
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  OBJECT_STORAGE_BACKEND: minio
+  OBJECT_STORAGE_REQUIRED: 'true'
+  OBJECT_STORAGE_ALLOW_LOCAL_FALLBACK: 'false'
+  OBJECT_STORAGE_CACHE_DIR: /app/object-cache
+  MINIO_ENDPOINT: minio:9000
+  MINIO_VIDEO_BUCKET: intel-i-uploaded-videos
+  MINIO_SECURE: 'false'
+  ANPR_OCR_REMOTE_URL: http://anpr-worker:9201
+  FRS_REMOTE_URL: http://frs-worker:9202
+  ANPR_REQUIRED: 'true'
+  FRS_REQUIRED: 'true'
+  FRS_WATCHLIST_SYNC_SECONDS: '15'
+  FRS_REQUEST_TIMEOUT_SECONDS: '3'
+  FRS_FAILURE_THRESHOLD: '3'
+  FRS_RECOVERY_SECONDS: '10'
+  FRS_MATCH_THRESHOLD: '0.55'
+  FRS_CONFIRMATIONS_REQUIRED: '3'
+  FRS_CONFIRMATION_WINDOW_SECONDS: '5'
+  FACE_DETECTOR_MODEL_PATH: /app/models/face_detection_yunet_2023mar.onnx
+  FACE_RECOGNIZER_MODEL_PATH: /app/models/face_recognition_sface_2021dec.onnx
+  ANPR_OCR_ENGINE: awiros_paddle
+  ANPR_AWIROS_MODEL_PATH: /app/models/awiros_anpr_ocr/model.safetensors
+  ANPR_AWIROS_DICT_PATH: /app/models/awiros_anpr_ocr/en_dict.txt
+  ANPR_AWIROS_PADDLEOCR_DIR: /app/vendor/PaddleOCR
+  PYTHONUNBUFFERED: '1'
+  INTEL_I_INFERENCE_MODE: triton
+  INTEL_I_TRITON_GRPC_URL: triton:8001
+  INFERENCE_FRAME_TTL_MS: '500'
+  INFERENCE_BATCH_FALLBACK_ENABLED: 'false'
+  INFERENCE_GPU_REQUIRED: 'false'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: intel-i-probes
+  namespace: intel-i
+  labels:
+    app: intel-i-probes
+    app.kubernetes.io/part-of: intel-i
+data:
+  check-health.py: "import json, sys\ntry:\n    data = json.load(sys.stdin)\n    ready\
+    \ = str(data.get(\"status\", \"\")).upper() == \"READY\"\nexcept (ValueError,\
+    \ TypeError, AttributeError):\n    ready = False\nsys.exit(0 if ready else 1)\n"
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: intel-i-local
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: intel-i-postgres
+spec:
+  capacity:
+    storage: 20Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: intel-i-local
+  local:
+    path: /var/lib/intel-i/postgres
+  claimRef:
+    namespace: intel-i
+    name: postgres-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: intel-i/node
+          operator: In
+          values:
+          - single-l40s
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: intel-i-redis
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: intel-i-local
+  local:
+    path: /var/lib/intel-i/redis
+  claimRef:
+    namespace: intel-i
+    name: redis-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: intel-i/node
+          operator: In
+          values:
+          - single-l40s
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: intel-i-kafka
+spec:
+  capacity:
+    storage: 20Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: intel-i-local
+  local:
+    path: /var/lib/intel-i/kafka
+  claimRef:
+    namespace: intel-i
+    name: kafka-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: intel-i/node
+          operator: In
+          values:
+          - single-l40s
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: intel-i-minio
+spec:
+  capacity:
+    storage: 50Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: intel-i-local
+  local:
+    path: /var/lib/intel-i/minio
+  claimRef:
+    namespace: intel-i
+    name: minio-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: intel-i/node
+          operator: In
+          values:
+          - single-l40s
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: intel-i
+  labels:
+    app: postgres-data
+    app.kubernetes.io/part-of: intel-i
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: intel-i-local
+  volumeName: intel-i-postgres
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: intel-i
+  labels:
+    app: postgres
+    app.kubernetes.io/part-of: intel-i
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+        app.kubernetes.io/part-of: intel-i
+    spec:
+      nodeSelector:
+        intel-i/node: single-l40s
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: postgres
+        image: postgis/postgis:16-3.5-alpine
+        env:
+        - name: POSTGRES_USER
+          value: postgres
+        - name: POSTGRES_DB
+          value: cctv_db
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: intel-i-secrets
+              key: POSTGRES_PASSWORD
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            memory: 2Gi
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 6
+        startupProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 60
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: postgres-data
+      enableServiceLinks: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: intel-i
+  labels:
+    app: postgres
+    app.kubernetes.io/part-of: intel-i
+spec:
+  selector:
+    app: postgres
+  ports:
+  - name: internal
+    port: 5432
+    targetPort: 5432
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: intel-i
+  labels:
+    app: redis-data
+    app.kubernetes.io/part-of: intel-i
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: intel-i-local
+  volumeName: intel-i-redis
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: intel-i
+  labels:
+    app: redis
+    app.kubernetes.io/part-of: intel-i
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+        app.kubernetes.io/part-of: intel-i
+    spec:
+      nodeSelector:
+        intel-i/node: single-l40s
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: redis
+        image: redis:7.4.2-alpine
+        command:
+        - redis-server
+        - --appendonly
+        - 'yes'
+        - --maxmemory
+        - 512mb
+        - --maxmemory-policy
+        - noeviction
+        ports:
+        - containerPort: 6379
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 1Gi
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - redis-cli ping | grep -qx PONG
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - redis-cli ping | grep -qx PONG
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 6
+        startupProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - redis-cli ping | grep -qx PONG
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 60
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: redis-data
+      enableServiceLinks: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: intel-i
+  labels:
+    app: redis
+    app.kubernetes.io/part-of: intel-i
+spec:
+  selector:
+    app: redis
+  ports:
+  - name: internal
+    port: 6379
+    targetPort: 6379
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kafka-data
+  namespace: intel-i
+  labels:
+    app: kafka-data
+    app.kubernetes.io/part-of: intel-i
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: intel-i-local
+  volumeName: intel-i-kafka
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+  namespace: intel-i
+  labels:
+    app: kafka
+    app.kubernetes.io/part-of: intel-i
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+        app.kubernetes.io/part-of: intel-i
+    spec:
+      nodeSelector:
+        intel-i/node: single-l40s
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: kafka
+        image: apache/kafka:3.9.1
+        env:
+        - name: KAFKA_NODE_ID
+          value: '1'
+        - name: KAFKA_PROCESS_ROLES
+          value: broker,controller
+        - name: KAFKA_LISTENERS
+          value: PLAINTEXT://:9092,CONTROLLER://:9093
+        - name: KAFKA_ADVERTISED_LISTENERS
+          value: PLAINTEXT://kafka:9092
+        - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+          value: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+        - name: KAFKA_CONTROLLER_LISTENER_NAMES
+          value: CONTROLLER
+        - name: KAFKA_INTER_BROKER_LISTENER_NAME
+          value: PLAINTEXT
+        - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+          value: 1@kafka:9093
+        - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+          value: '1'
+        - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+          value: '1'
+        - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+          value: '1'
+        - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
+          value: '0'
+        - name: KAFKA_LOG_DIRS
+          value: /var/lib/kafka/data/logs
+        - name: KAFKA_HEAP_OPTS
+          value: -Xms512m -Xmx1g
+        - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+          value: 'true'
+        - name: CLUSTER_ID
+          value: MkU3OEVBNTcwNTJENDM2Qk
+        ports:
+        - containerPort: 9092
+        - containerPort: 9093
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/kafka/data
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1536Mi
+          limits:
+            memory: 3Gi
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092
+              >/dev/null
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 4
+        startupProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092
+              >/dev/null
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 60
+        livenessProbe:
+          tcpSocket:
+            port: 9092
+          periodSeconds: 20
+          failureThreshold: 6
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: kafka-data
+      enableServiceLinks: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: intel-i
+  labels:
+    app: kafka
+    app.kubernetes.io/part-of: intel-i
+spec:
+  selector:
+    app: kafka
+  ports:
+  - name: internal
+    port: 9092
+    targetPort: 9092
+  - name: controller
+    port: 9093
+    targetPort: 9093
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: intel-i
+  labels:
+    app: minio-data
+    app.kubernetes.io/part-of: intel-i
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: intel-i-local
+  volumeName: intel-i-minio
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: intel-i
+  labels:
+    app: minio
+    app.kubernetes.io/part-of: intel-i
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+        app.kubernetes.io/part-of: intel-i
+    spec:
+      nodeSelector:
+        intel-i/node: single-l40s
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: minio
+        image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+        args:
+        - server
+        - /data
+        - --console-address
+        - :9001
+        env:
+        - name: MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              name: intel-i-secrets
+              key: MINIO_ACCESS_KEY
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: intel-i-secrets
+              key: MINIO_SECRET_KEY
+        ports:
+        - containerPort: 9000
+        - containerPort: 9001
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            memory: 2Gi
+        readinessProbe:
+          httpGet:
+            path: /minio/health/ready
+            port: 9000
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /minio/health/live
+            port: 9000
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /minio/health/live
+            port: 9000
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 60
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: minio-data
+      enableServiceLinks: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: intel-i
+  labels:
+    app: minio
+    app.kubernetes.io/part-of: intel-i
+spec:
+  selector:
+    app: minio
+  ports:
+  - name: internal
+    port: 9000
+    targetPort: 9000
+  - name: console
+    port: 9001
+    targetPort: 9001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intel-i-api
+  namespace: intel-i
+  labels:
+    app: intel-i-api
+    app.kubernetes.io/part-of: intel-i
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: intel-i-api
+  template:
+    metadata:
+      labels:
+        app: intel-i-api
+        app.kubernetes.io/part-of: intel-i
+    spec:
+      nodeSelector:
+        intel-i/node: single-l40s
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+      - name: api
+        image: intel-i-runtime:triton-v1
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: intel-i-config
+        - secretRef:
+            name: intel-i-secrets
+        env:
+        - name: INTEL_I_PROCESS_ROLE
+          value: api
+        - name: CUDA_VISIBLE_DEVICES
+          value: ''
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: void
+        - name: INFERENCE_GPU_REQUIRED
+          value: 'false'
+        ports:
+        - name: http
+          containerPort: 3000
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            memory: 3Gi
+        volumeMounts:
+        - name: cache
+          mountPath: /app/object-cache
+        - name: probes
+          mountPath: /opt/intel-i-probes
+          readOnly: true
+        startupProbe:
+          httpGet:
+            path: /health/live
+            port: 3000
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 3000
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 3000
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: cache
+        emptyDir:
+          sizeLimit: 10Gi
+      - name: probes
+        configMap:
+          name: intel-i-probes
+      enableServiceLinks: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: intel-i-api
+  namespace: intel-i
+  labels:
+    app: intel-i-api
+    app.kubernetes.io/part-of: intel-i
+spec:
+  selector:
+    app: intel-i-api
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: camera-worker
+  namespace: intel-i
+  labels:
+    app: camera-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  replicas: 6
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: camera-worker
+  template:
+    metadata:
+      labels:
+        app: camera-worker
+        app.kubernetes.io/part-of: intel-i
+    spec:
+      nodeSelector:
+        intel-i/node: single-l40s
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+      - name: camera-worker
+        image: intel-i-runtime:triton-v1
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: intel-i-config
+        - secretRef:
+            name: intel-i-secrets
+        env:
+        - name: INTEL_I_PROCESS_ROLE
+          value: camera-worker
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: CUDA_VISIBLE_DEVICES
+          value: ''
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: void
+        - name: INFERENCE_GPU_REQUIRED
+          value: 'false'
+        ports:
+        - name: internal
+          containerPort: 9101
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 3Gi
+          limits:
+            memory: 12Gi
+        volumeMounts:
+        - name: cache
+          mountPath: /app/object-cache
+        - name: probes
+          mountPath: /opt/intel-i-probes
+          readOnly: true
+        command:
+        - python
+        - -m
+        - workers.camera_worker
+        startupProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - 'curl --fail --silent --show-error --max-time 3 -H "X-Intel-I-Worker-Token:
+              $INTEL_I_WORKER_PREVIEW_TOKEN" http://127.0.0.1:9101/internal/health
+              >/dev/null'
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 120
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - 'body=$(curl --fail --silent --show-error --max-time 3 -H "X-Intel-I-Worker-Token:
+              $INTEL_I_WORKER_PREVIEW_TOKEN" http://127.0.0.1:9101/internal/health);
+              printf "%s" "$body" | python /opt/intel-i-probes/check-health.py'
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - 'curl --fail --silent --show-error --max-time 3 -H "X-Intel-I-Worker-Token:
+              $INTEL_I_WORKER_PREVIEW_TOKEN" http://127.0.0.1:9101/internal/health
+              >/dev/null'
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 6
+      volumes:
+      - name: cache
+        emptyDir:
+          sizeLimit: 10Gi
+      - name: probes
+        configMap:
+          name: intel-i-probes
+      enableServiceLinks: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: camera-worker
+  namespace: intel-i
+  labels:
+    app: camera-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  selector:
+    app: camera-worker
+  ports:
+  - name: internal
+    port: 9101
+    targetPort: 9101
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: intel-i
+  labels:
+    app: default-deny-ingress
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres
+  namespace: intel-i
+  labels:
+    app: allow-postgres
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: intel-i-api
+    - podSelector:
+        matchLabels:
+          app: camera-worker
+    - podSelector:
+        matchLabels:
+          app: frs-worker
+    - podSelector:
+        matchLabels:
+          app: camera-onboarding-worker
+    - podSelector:
+        matchLabels:
+          app: intel-i-migrate
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    - podSelector:
+        matchLabels:
+          app: inference-worker
+    - podSelector:
+        matchLabels:
+          app: triton
+    ports:
+    - protocol: TCP
+      port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis
+  namespace: intel-i
+  labels:
+    app: allow-redis
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: intel-i-api
+    - podSelector:
+        matchLabels:
+          app: camera-worker
+    - podSelector:
+        matchLabels:
+          app: camera-onboarding-worker
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    - podSelector:
+        matchLabels:
+          app: inference-worker
+    - podSelector:
+        matchLabels:
+          app: triton
+    ports:
+    - protocol: TCP
+      port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kafka
+  namespace: intel-i
+  labels:
+    app: allow-kafka
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: kafka
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: intel-i-api
+    - podSelector:
+        matchLabels:
+          app: camera-worker
+    - podSelector:
+        matchLabels:
+          app: camera-onboarding-worker
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    - podSelector:
+        matchLabels:
+          app: inference-worker
+    - podSelector:
+        matchLabels:
+          app: triton
+    ports:
+    - protocol: TCP
+      port: 9092
+  - from:
+    - podSelector:
+        matchLabels:
+          app: kafka
+    - podSelector:
+        matchLabels:
+          app: inference-worker
+    - podSelector:
+        matchLabels:
+          app: triton
+    ports:
+    - protocol: TCP
+      port: 9093
+    - protocol: TCP
+      port: 9092
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-minio
+  namespace: intel-i
+  labels:
+    app: allow-minio
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: minio
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: intel-i-api
+    - podSelector:
+        matchLabels:
+          app: camera-worker
+    - podSelector:
+        matchLabels:
+          app: frs-worker
+    - podSelector:
+        matchLabels:
+          app: anpr-worker
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    - podSelector:
+        matchLabels:
+          app: inference-worker
+    - podSelector:
+        matchLabels:
+          app: triton
+    ports:
+    - protocol: TCP
+      port: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-anpr-worker
+  namespace: intel-i
+  labels:
+    app: allow-anpr-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: anpr-worker
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: camera-worker
+    - podSelector:
+        matchLabels:
+          app: intel-i-api
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    - podSelector:
+        matchLabels:
+          app: inference-worker
+    - podSelector:
+        matchLabels:
+          app: triton
+    ports:
+    - protocol: TCP
+      port: 9201
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frs-worker
+  namespace: intel-i
+  labels:
+    app: allow-frs-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: frs-worker
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: camera-worker
+    - podSelector:
+        matchLabels:
+          app: intel-i-api
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    - podSelector:
+        matchLabels:
+          app: inference-worker
+    - podSelector:
+        matchLabels:
+          app: triton
+    ports:
+    - protocol: TCP
+      port: 9202
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-camera-worker
+  namespace: intel-i
+  labels:
+    app: allow-camera-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: camera-worker
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: intel-i-api
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    ports:
+    - protocol: TCP
+      port: 9101
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intel-i-api
+  namespace: intel-i
+  labels:
+    app: allow-intel-i-api
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: intel-i-api
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    ports:
+    - protocol: TCP
+      port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-inference-worker
+  namespace: intel-i
+  labels:
+    app: allow-inference-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: inference-worker
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: camera-worker
+    - podSelector:
+        matchLabels:
+          app: intel-i-api
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    ports:
+    - protocol: TCP
+      port: 9300

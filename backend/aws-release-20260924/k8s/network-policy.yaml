@@ -1,0 +1,315 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: intel-i
+  labels:
+    app: default-deny-ingress
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres
+  namespace: intel-i
+  labels:
+    app: allow-postgres
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: intel-i-api
+    - podSelector:
+        matchLabels:
+          app: camera-worker
+    - podSelector:
+        matchLabels:
+          app: frs-worker
+    - podSelector:
+        matchLabels:
+          app: camera-onboarding-worker
+    - podSelector:
+        matchLabels:
+          app: intel-i-migrate
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    - podSelector:
+        matchLabels:
+          app: inference-worker
+    ports:
+    - protocol: TCP
+      port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis
+  namespace: intel-i
+  labels:
+    app: allow-redis
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: intel-i-api
+    - podSelector:
+        matchLabels:
+          app: camera-worker
+    - podSelector:
+        matchLabels:
+          app: camera-onboarding-worker
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    - podSelector:
+        matchLabels:
+          app: inference-worker
+    ports:
+    - protocol: TCP
+      port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kafka
+  namespace: intel-i
+  labels:
+    app: allow-kafka
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: kafka
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: intel-i-api
+    - podSelector:
+        matchLabels:
+          app: camera-worker
+    - podSelector:
+        matchLabels:
+          app: camera-onboarding-worker
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    - podSelector:
+        matchLabels:
+          app: inference-worker
+    ports:
+    - protocol: TCP
+      port: 9092
+  - from:
+    - podSelector:
+        matchLabels:
+          app: kafka
+    - podSelector:
+        matchLabels:
+          app: inference-worker
+    ports:
+    - protocol: TCP
+      port: 9093
+    - protocol: TCP
+      port: 9092
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-minio
+  namespace: intel-i
+  labels:
+    app: allow-minio
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: minio
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: intel-i-api
+    - podSelector:
+        matchLabels:
+          app: camera-worker
+    - podSelector:
+        matchLabels:
+          app: frs-worker
+    - podSelector:
+        matchLabels:
+          app: anpr-worker
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    - podSelector:
+        matchLabels:
+          app: inference-worker
+    ports:
+    - protocol: TCP
+      port: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-anpr-worker
+  namespace: intel-i
+  labels:
+    app: allow-anpr-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: anpr-worker
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: camera-worker
+    - podSelector:
+        matchLabels:
+          app: intel-i-api
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    - podSelector:
+        matchLabels:
+          app: inference-worker
+    ports:
+    - protocol: TCP
+      port: 9201
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frs-worker
+  namespace: intel-i
+  labels:
+    app: allow-frs-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: frs-worker
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: camera-worker
+    - podSelector:
+        matchLabels:
+          app: intel-i-api
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    - podSelector:
+        matchLabels:
+          app: inference-worker
+    ports:
+    - protocol: TCP
+      port: 9202
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-camera-worker
+  namespace: intel-i
+  labels:
+    app: allow-camera-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: camera-worker
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: intel-i-api
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    ports:
+    - protocol: TCP
+      port: 9101
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intel-i-api
+  namespace: intel-i
+  labels:
+    app: allow-intel-i-api
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: intel-i-api
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    ports:
+    - protocol: TCP
+      port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-inference-worker
+  namespace: intel-i
+  labels:
+    app: allow-inference-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  podSelector:
+    matchLabels:
+      app: inference-worker
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: camera-worker
+    - podSelector:
+        matchLabels:
+          app: intel-i-api
+    - podSelector:
+        matchLabels:
+          app: intel-i-diagnostics
+    ports:
+    - protocol: TCP
+      port: 9300

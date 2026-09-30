@@ -1,0 +1,18 @@
+groups:
+  - name: intel-i-triton
+    rules:
+      - alert: TritonUnavailable
+        expr: up{job="triton"} == 0
+        for: 30s
+        labels: {severity: critical}
+        annotations: {summary: "INTEL-I Triton metrics unavailable"}
+      - alert: TritonInferenceErrors
+        expr: sum(rate(nv_inference_request_failure[2m])) > 0
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "Triton is rejecting or failing inference requests"}
+      - alert: TritonGPUMemoryPressure
+        expr: nv_gpu_memory_used_bytes / nv_gpu_memory_total_bytes > 0.85
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: "GPU memory headroom below 15 percent"}

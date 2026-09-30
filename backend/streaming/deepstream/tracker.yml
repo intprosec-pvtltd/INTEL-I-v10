@@ -1,0 +1,6 @@
+# Use the tracker configuration syntax supported by the installed DeepStream
+# version. The exact tracker backend/library must be validated on the target
+# NVIDIA driver + DeepStream combination.
+tracker:
+  enable-past-frame: 1
+  enable-batch-process: 1

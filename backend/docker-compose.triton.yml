@@ -1,0 +1,76 @@
+services:
+  triton:
+    image: intel-i-runtime:triton-v1
+    env_file:
+    - .env.production
+    environment:
+      INTEL_I_TRITON_GRPC_URL: localhost:8001
+      INFERENCE_GPU_REQUIRED: 'true'
+    volumes:
+    - ./models:/app/models:ro
+    - ./vendor:/app/vendor:ro
+    - triton-cache:/app/object-cache
+    shm_size: 2gb
+    gpus: all
+    restart: unless-stopped
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:8000/v2/health/ready
+      interval: 10s
+      timeout: 3s
+      retries: 60
+  inference-worker:
+    image: intel-i-runtime:triton-v1
+    entrypoint: []
+    command:
+    - python3
+    - -m
+    - workers.inference_worker
+    env_file:
+    - .env.production
+    environment:
+      NVIDIA_VISIBLE_DEVICES: void
+      CUDA_VISIBLE_DEVICES: ''
+      INFERENCE_GPU_REQUIRED: 'false'
+    depends_on:
+      triton:
+        condition: service_healthy
+    restart: unless-stopped
+  camera-worker:
+    image: intel-i-runtime:triton-v1
+    entrypoint: []
+    command:
+    - python3
+    - -m
+    - workers.camera_worker
+    env_file:
+    - .env.production
+    environment:
+      NVIDIA_VISIBLE_DEVICES: void
+      CUDA_VISIBLE_DEVICES: ''
+      INFERENCE_GPU_REQUIRED: 'false'
+    restart: unless-stopped
+  api:
+    image: intel-i-runtime:triton-v1
+    entrypoint: []
+    command:
+    - uvicorn
+    - main:app
+    - --host
+    - 0.0.0.0
+    - --port
+    - '3000'
+    env_file:
+    - .env.production
+    environment:
+      NVIDIA_VISIBLE_DEVICES: void
+      CUDA_VISIBLE_DEVICES: ''
+      INTEL_I_PROCESS_ROLE: api
+    ports:
+    - 127.0.0.1:3000:3000
+    restart: unless-stopped
+volumes:
+  triton-cache: {}

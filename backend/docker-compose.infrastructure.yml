@@ -1,0 +1,202 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.5-alpine
+    container_name: intel-i-postgis
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-intel_i}
+      POSTGRES_USER: ${POSTGRES_USER:-intel_i}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_INITDB_ARGS: ${POSTGRES_INITDB_ARGS:---auth-host=scram-sha-256}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - intel_i_postgis:/var/lib/postgresql/data
+    command:
+      - postgres
+      - -c
+      - password_encryption=scram-sha-256
+      - -c
+      - shared_preload_libraries=
+      - -c
+      - log_min_duration_statement=${POSTGRES_LOG_MIN_DURATION_MS:-1000}
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-200}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-intel_i} -d ${POSTGRES_DB:-intel_i} && psql -U ${POSTGRES_USER:-intel_i} -d ${POSTGRES_DB:-intel_i} -tAc \"SELECT 1 FROM pg_extension WHERE extname='postgis'\" | grep -q 1"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    stop_grace_period: 60s
+    networks:
+      - intel_i_backend
+
+  redis:
+    image: redis:7-alpine
+    container_name: intel-i-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - intel_i_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    stop_grace_period: 30s
+    networks:
+      - intel_i_backend
+
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    container_name: intel-i-kafka
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${KAFKA_HOST_PORT:-9092}:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://kafka:29092,CONTROLLER://kafka:9093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:${KAFKA_HOST_PORT:-9092}
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    volumes:
+      - intel_i_kafka:/var/lib/kafka/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "kafka-broker-api-versions --bootstrap-server kafka:29092 >/dev/null 2>&1"
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+    stop_grace_period: 60s
+    networks:
+      - intel_i_backend
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    container_name: intel-i-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+      MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-http://localhost:9001}
+    command:
+      - server
+      - /data
+      - --address
+      - ":9000"
+      - --console-address
+      - ":9001"
+    ports:
+      - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - intel_i_minio:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:9000/minio/health/live"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    stop_grace_period: 60s
+    networks:
+      - intel_i_backend
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    container_name: intel-i-minio-init
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+      MINIO_VIDEO_BUCKET: ${MINIO_VIDEO_BUCKET:-intel-i-uploaded-videos}
+    entrypoint:
+      - /bin/sh
+      - -ec
+    command:
+      - |
+        mc alias set inteli http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing "inteli/$${MINIO_VIDEO_BUCKET}"
+        mc anonymous set none "inteli/$${MINIO_VIDEO_BUCKET}"
+        mc ilm rule add --expire-days "${MINIO_INCOMPLETE_EXPIRY_DAYS:-7}" --noncurrent-expire-days "${MINIO_NONCURRENT_EXPIRY_DAYS:-30}" "inteli/$${MINIO_VIDEO_BUCKET}" >/dev/null 2>&1 || true
+        mc stat "inteli/$${MINIO_VIDEO_BUCKET}" >/dev/null
+        echo "INTEL-I MinIO upload bucket is ready: $${MINIO_VIDEO_BUCKET}"
+    networks:
+      - intel_i_backend
+
+  opensearch:
+    image: opensearchproject/opensearch:3.2.0
+    container_name: intel-i-opensearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: ${OPENSEARCH_JAVA_OPTS:--Xms1g -Xmx1g}
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:?OPENSEARCH_INITIAL_ADMIN_PASSWORD is required}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "127.0.0.1:${OPENSEARCH_HOST_PORT:-9200}:9200"
+    volumes:
+      - intel_i_opensearch:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -k -u admin:$${OPENSEARCH_INITIAL_ADMIN_PASSWORD} https://localhost:9200/_cluster/health >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    stop_grace_period: 60s
+    networks:
+      - intel_i_backend
+
+volumes:
+  intel_i_postgis:
+    name: intel_i_postgis
+  intel_i_redis:
+    name: intel_i_redis
+  intel_i_kafka:
+    name: intel_i_kafka
+  intel_i_minio:
+    name: intel_i_minio
+  intel_i_opensearch:
+    name: intel_i_opensearch
+
+networks:
+  intel_i_backend:
+    name: intel_i_backend
+    driver: bridge

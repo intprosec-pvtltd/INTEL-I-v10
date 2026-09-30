@@ -1,0 +1,31 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual env
+venv/
+.env
+keys/
+
+# AI models are required by the RunPod image. If GitHub rejects a model over
+# 100 MB, track that file with Git LFS instead of silently omitting it.
+models/tensorrt/*.engine
+models/tensorrt/*.plan
+
+# Alerts / logs
+alerts/
+*.log
+
+# Videos
+uploads/
+videos/
+*.mp4
+*.avi
+
+# Database
+*.db
+# TensorRT / model artifacts
+models/tensorrt/*.engine
+models/tensorrt/*.plan
+models/tensorrt/manifest.json
+.env.runpod

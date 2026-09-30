@@ -1,0 +1,25 @@
+[property]
+gpu-id=0
+batch-size=8
+process-mode=1
+network-mode=2
+interval=0
+# REQUIRED: point this at the exact SHA-256-validated Phase 7 engine.
+# Do not enable DeepStream production mode until the engine and exact parser are validated.
+model-engine-file=/opt/intel-i/models/tensorrt/vehicle_detector.engine
+labelfile-path=/opt/intel-i/models/vehicle_labels.txt
+# For YOLO exports, configure the correct custom parser for the exact engine.
+# Do not guess parser semantics.
+output-blob-names=output
+
+[class-attrs-all]
+pre-cluster-threshold=0.35
+nms-iou-threshold=0.45
+cluster-mode=2
+
+
+# YOLO output parsing is model/export-specific.
+# Do NOT uncomment a parser setting until the exact parser library has been validated
+# against this engine and DeepStream release.
+# custom-lib-path=/opt/intel-i/lib/libintel_i_yolo_parser.so
+# parse-bbox-func-name=NvDsInferParseCustomYolo

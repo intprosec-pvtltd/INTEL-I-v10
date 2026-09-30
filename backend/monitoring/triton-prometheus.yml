@@ -1,0 +1,14 @@
+scrape_configs:
+  - job_name: triton
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['triton:8002']
+  - job_name: intel-inference
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['inference-worker:9300']
+    # Existing endpoint requires X-Intel-I-Inference-Token. Use a private
+    # authenticated metrics proxy or Prometheus http_headers (supported versions).
+    http_headers:
+      X-Intel-I-Inference-Token:
+        files: ['/run/secrets/inference-token']

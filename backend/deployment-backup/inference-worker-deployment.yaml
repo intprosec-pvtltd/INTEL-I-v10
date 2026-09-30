@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference-worker
+  namespace: intel-i
+  labels:
+    app: inference-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: inference-worker
+  template:
+    metadata:
+      labels:
+        app: inference-worker
+        app.kubernetes.io/part-of: intel-i
+    spec:
+      nodeSelector:
+        intel-i/node: single-l40s
+      runtimeClassName: nvidia
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+      - name: inference-worker
+        image: intel-i-camera-worker:aws-20260920-k8s1
+        imagePullPolicy: IfNotPresent
+        command: ["python", "-m", "workers.inference_worker"]
+        envFrom:
+        - configMapRef:
+            name: intel-i-config
+        - secretRef:
+            name: intel-i-secrets
+        env:
+        - name: INTEL_I_PROCESS_ROLE
+          value: inference-worker
+        - name: INFERENCE_GPU_REQUIRED
+          value: "true"
+        ports:
+        - name: http
+          containerPort: 9300
+        resources:
+          requests:
+            cpu: "2"
+            memory: 4Gi
+          limits:
+            cpu: "8"
+            memory: 24Gi
+            nvidia.com/gpu: 1
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
+        startupProbe:
+          httpGet: {path: /health/live, port: http}
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 60
+        readinessProbe:
+          httpGet: {path: /health/ready, port: http}
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        livenessProbe:
+          httpGet: {path: /health/live, port: http}
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+      enableServiceLinks: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference-worker
+  namespace: intel-i
+  labels:
+    app: inference-worker
+    app.kubernetes.io/part-of: intel-i
+spec:
+  selector:
+    app: inference-worker
+  ports:
+  - name: http
+    port: 9300
+    targetPort: http

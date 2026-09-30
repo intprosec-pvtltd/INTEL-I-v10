@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: intel-i-probes
+  namespace: intel-i
+  labels:
+    app: intel-i-probes
+    app.kubernetes.io/part-of: intel-i
+data:
+  check-health.py: "import json, sys\ntry:\n    data = json.load(sys.stdin)\n    ready\
+    \ = str(data.get(\"status\", \"\")).upper() == \"READY\"\nexcept (ValueError,\
+    \ TypeError, AttributeError):\n    ready = False\nsys.exit(0 if ready else 1)\n"

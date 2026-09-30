@@ -1,0 +1,24 @@
+{
+  "release": "distributed-v1-safe-migration-bridge",
+  "validated_on": "2026-09-17",
+  "checks": {
+    "python_compileall": "PASS",
+    "alembic_single_head": "PASS: b8d4e6f1a2c3",
+    "kubernetes_yaml_parse": "PASS",
+    "docker_compose_yaml_parse": "PASS",
+    "distributed_lease_unit_tests": "PASS: 3/3",
+    "camera_source_resolver_unit_tests": "PASS: 2/2",
+    "existing_person_recognition_regression_tests": "PASS: 3/3",
+    "cli_smoke_acceptance_script": "PASS",
+    "cli_smoke_benchmark_script": "PASS"
+  },
+  "not_executed_in_audit_container": {
+    "full_project_test_suite": "The audit runtime does not have the complete requirements.txt environment installed (for example redis, GeoAlchemy2, psycopg2 and python-jose). Targeted tests that do not require those missing runtime packages were executed successfully.",
+    "postgres_migration_against_user_database": "Requires the user's actual PostgreSQL/PostGIS deployment and backup window.",
+    "redis_failover_integration": "Requires a live Redis deployment.",
+    "camera_stream_integration": "Requires the user's RTSP/HTTP/ONVIF/VMS cameras and network.",
+    "gpu_throughput": "Requires the target NVIDIA GPU nodes and real INTEL-I model artifacts.",
+    "60_camera_capacity": "Not claimed. The Kubernetes overlay provides 60 ownership slots; actual throughput must pass staged 5/10/20/30/45/60 benchmarks."
+  },
+  "compatibility_boundary": "Distributed workers intentionally reuse the existing main.py analytics pipeline in this phase to minimize behavioral change. Full worker-only model/service extraction and track-level multi-frame FRS are subsequent phases after ownership/failover validation."
+}

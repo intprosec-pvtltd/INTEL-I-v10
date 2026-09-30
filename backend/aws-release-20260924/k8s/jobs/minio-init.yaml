@@ -1,0 +1,42 @@
+﻿apiVersion: batch/v1
+kind: Job
+metadata:
+  name: intel-i-minio-init
+  namespace: intel-i
+  labels:
+    app: intel-i-minio-init
+    app.kubernetes.io/part-of: intel-i
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app: intel-i-diagnostics
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      nodeSelector:
+        intel-i/node: single-l40s
+      containers:
+      - name: minio-init
+        image: intel-i-api:aws-20260920-k8s1
+        command:
+        - python
+        - -c
+        - import os; from minio import Minio; c=Minio(os.environ["MINIO_ENDPOINT"],access_key=os.environ["MINIO_ACCESS_KEY"],secret_key=os.environ["MINIO_SECRET_KEY"],secure=False);
+          b=os.environ["MINIO_VIDEO_BUCKET"]; c.make_bucket(b) if not c.bucket_exists(b)
+          else None; print("Upload bucket ready")
+        envFrom:
+        - configMapRef:
+            name: intel-i-config
+        - secretRef:
+            name: intel-i-secrets
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 1Gi
+      enableServiceLinks: false
+

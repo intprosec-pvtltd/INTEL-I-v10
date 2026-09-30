@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: intel-i-time-slicing
+  namespace: nvidia-device-plugin
+data:
+  single-l40s: "version: v1\nflags:\n  migStrategy: none\nsharing:\n  timeSlicing:\n\
+    \    renameByDefault: false\n    failRequestsGreaterThanOne: true\n    resources:\n\
+    \    - name: nvidia.com/gpu\n      replicas: 3\n"

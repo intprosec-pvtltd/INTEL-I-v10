@@ -1357,7 +1357,7 @@ const AlertHistory = ({ onAlertSelect }) => {
                         </div>
                       )}
 
-                      {(item.watchlist_category || item.watchlist_entry_id) && (
+                      {(item.watchlist_category || item.watchlist_entry_id || item.watchlist_source_name) && (
                         <div className="rounded-lg border border-red-500/10 bg-red-500/[0.03] px-3 py-2.5">
                           <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-red-400/60">
                             Watchlist
@@ -1370,6 +1370,7 @@ const AlertHistory = ({ onAlertSelect }) => {
                               {safeText(item.watchlist_category, "Exact Match")}
                             </span>
                           </div>
+                          {item.watchlist_source_name && <div className="mt-1 text-[11px] text-slate-400">Source: {safeText(item.watchlist_source_name)}{item.external_record_id ? ` · ID ${safeText(item.external_record_id)}` : ""}</div>}
                         </div>
                       )}
 
@@ -1662,7 +1663,7 @@ const AlertHistory = ({ onAlertSelect }) => {
                   )}
 
                   {(selectedAlert.watchlist_category ||
-                    selectedAlert.watchlist_entry_id) && (
+                    selectedAlert.watchlist_entry_id || selectedAlert.watchlist_source_name) && (
                     <div className="rounded-xl border border-red-500/10 bg-red-500/[0.03] p-4">
                       <div className="mb-2 flex items-center gap-2">
                         <ShieldAlert size={15} className="text-red-300" />
@@ -1681,6 +1682,7 @@ const AlertHistory = ({ onAlertSelect }) => {
                           Entry #{selectedAlert.watchlist_entry_id}
                         </div>
                       )}
+                      {selectedAlert.watchlist_source_name && <div className="mt-2 space-y-1 text-xs text-slate-400"><div>Source: {safeText(selectedAlert.watchlist_source_name)}</div>{selectedAlert.external_record_id && <div>External ID: {safeText(selectedAlert.external_record_id)}</div>}{selectedAlert.case_reference && <div>Case: {safeText(selectedAlert.case_reference)}</div>}</div>}
                     </div>
                   )}
 

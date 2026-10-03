@@ -1,1 +1,1 @@
-"""Centralized INTEL-I inference plane."""
+"""External system integrations for INTEL-I."""

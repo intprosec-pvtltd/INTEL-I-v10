@@ -157,6 +157,11 @@ def create_exact_watchlist_alert(
         return None
 
     entry, _ = result['exact'][0]
+    source_meta = entry.metadata_json if isinstance(entry.metadata_json, dict) else {}
+    external_info = source_meta.get('external_watchlist') if isinstance(source_meta.get('external_watchlist'), dict) else {}
+    external_source_id = source_meta.get('external_source_id')
+    external_record_id = source_meta.get('external_record_id') or external_info.get('external_id')
+    case_reference = external_info.get('case_reference')
 
     logger.info(
         "[INTEL-I][WATCHLIST] EXACT_MATCH "
@@ -211,6 +216,11 @@ def create_exact_watchlist_alert(
         watchlist_match_type='EXACT',
         watchlist_match_confidence=float(confidence),
         watchlist_version=entry.version,
+        watchlist_source_id=external_source_id,
+        watchlist_source_name=entry.source,
+        external_record_id=external_record_id,
+        case_reference=case_reference,
+        entity_type='VEHICLE',
     )
     db.add(alert)
     db.flush()
@@ -304,6 +314,10 @@ def create_exact_watchlist_alert(
             'watchlist_entry_id': int(entry.id),
             'reference': entry.plate_display,
             'category': entry.category,
+            'watchlist_source_name': entry.source,
+            'watchlist_source_id': external_source_id,
+            'external_record_id': external_record_id,
+            'case_reference': case_reference,
             'tracking_status': 'ACTIVE_TRACKING' if len(combined_route) > 1 else 'WAITING_FOR_NEXT_CAMERA',
             'first_camera_id': previous_journey.get('first_camera_id') or str(camera_id),
             'last_camera_id': str(camera_id),
@@ -349,6 +363,10 @@ def create_exact_watchlist_alert(
             'watchlist_entry_id': int(entry.id),
             'reference': entry.plate_display,
             'category': entry.category,
+            'watchlist_source_name': entry.source,
+            'watchlist_source_id': external_source_id,
+            'external_record_id': external_record_id,
+            'case_reference': case_reference,
             'tracking_status': 'ACTIVE_TRACKING' if len(route) > 1 else 'WAITING_FOR_NEXT_CAMERA',
             'first_camera_id': journey.get('first_camera_id') or str(camera_id),
             'last_camera_id': str(camera_id),
@@ -379,6 +397,10 @@ def create_exact_watchlist_alert(
         metadata_json={
             'watchlist_entry_id': int(entry.id),
             'category': entry.category,
+            'source_name': entry.source,
+            'source_id': external_source_id,
+            'external_record_id': external_record_id,
+            'case_reference': case_reference,
             'confidence': float(confidence),
             'global_vehicle_id': global_vehicle_id,
             'journey_observation': observation,
@@ -403,6 +425,10 @@ def create_exact_watchlist_alert(
         'plate': entry.plate_display,
         'category': entry.category,
         'watchlist_category': entry.category,
+        'watchlist_source_name': entry.source,
+        'watchlist_source_id': external_source_id,
+        'external_record_id': external_record_id,
+        'case_reference': case_reference,
         'status': entry.status,
         'watchlist_status': entry.status,
         'priority': level,

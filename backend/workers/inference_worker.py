@@ -1,4 +1,4 @@
-"""INTEL-I centralized GPU inference service.
+﻿"""INTEL-I centralized GPU inference service.
 
 Owns the heavy GPU runtime in centralized mode. Stream workers only decode,
 preview, schedule and submit the newest eligible frame. Primary detection is
@@ -20,6 +20,9 @@ import threading
 import time
 from typing import Any
 
+from dotenv import load_dotenv
+
+load_dotenv()
 os.environ["INTEL_I_PROCESS_ROLE"] = "inference-worker"
 
 import cv2
@@ -425,3 +428,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

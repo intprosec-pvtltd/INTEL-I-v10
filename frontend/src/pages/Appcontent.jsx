@@ -33,6 +33,7 @@ import IncidentCenter from "../pages/IncidentCenter";
 import IntelligenceAssistant from "../pages/IntelligenceAssistant";
 import AnalyticsReports from "../pages/AnalyticsReports";
 import UserManagement from "../pages/UserManagement";
+import ExternalWatchlists from "../pages/ExternalWatchlists";
 import AccountSecurity from "../components/AccountSecurity";
 
 /* =========================================================
@@ -344,6 +345,19 @@ const AppContent = () => {
               element={
                 <SuperAdminRoute>
                   <UserManagement />
+                </SuperAdminRoute>
+              }
+            />
+
+            {/* =================================================
+                EXTERNAL WATCHLIST INTEGRATIONS
+            ================================================= */}
+
+            <Route
+              path="/external-watchlists"
+              element={
+                <SuperAdminRoute>
+                  <ExternalWatchlists />
                 </SuperAdminRoute>
               }
             />

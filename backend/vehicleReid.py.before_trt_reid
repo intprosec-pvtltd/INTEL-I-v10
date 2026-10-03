@@ -37,25 +37,6 @@ MODEL_PATH = os.getenv(
     "models/osnet_ain_x1_0_vehicle_reid.onnx",
 ).strip()
 
-TENSORRT_ENGINE_PATH = os.getenv(
-    "VEHICLE_REID_TENSORRT_ENGINE",
-    "models/tensorrt/vehicle_reid.engine",
-).strip()
-
-TENSORRT_ENABLED = (
-    os.getenv("TENSORRT_ENABLED", "false")
-    .strip()
-    .lower()
-    in {"1", "true", "yes", "on"}
-)
-
-TENSORRT_REQUIRED = (
-    os.getenv("TENSORRT_REQUIRED", "false")
-    .strip()
-    .lower()
-    in {"1", "true", "yes", "on"}
-)
-
 
 # Default values match the current INTEL-I model.
 DEFAULT_INPUT_WIDTH = 208
@@ -229,20 +210,6 @@ MAX_BRIGHTNESS = float(
 
 _session = None
 
-# Existing AnalyticsRuntime checks _session or _model.
-# TensorRT therefore exposes its loaded engine through _model as well.
-_model = None
-
-_trt_runtime = None
-_trt_engine = None
-_trt_context = None
-_trt_input_name = None
-_trt_output_name = None
-_trt_attempted = False
-_trt_error = None
-
-_active_backend = "uninitialized"
-
 _session_lock = threading.RLock()
 
 _inference_lock = threading.RLock()
@@ -380,464 +347,6 @@ def _build_execution_providers(
         )
 
     return providers
-
-
-# ============================================================
-# TENSORRT BACKEND
-# ============================================================
-
-def _tensorrt_requested() -> bool:
-    provider = REID_PROVIDER.strip().lower()
-
-    if provider in {"tensorrt", "trt"}:
-        return True
-
-    if provider == "auto" and TENSORRT_ENABLED:
-        return Path(
-            TENSORRT_ENGINE_PATH
-        ).expanduser().is_file()
-
-    return False
-
-
-def _torch_dtype_from_trt(dtype):
-    import tensorrt as trt
-    import torch
-
-    if dtype == trt.float16:
-        return torch.float16
-
-    if dtype == trt.float32:
-        return torch.float32
-
-    if dtype == trt.int32:
-        return torch.int32
-
-    if dtype == trt.int8:
-        return torch.int8
-
-    if hasattr(trt, "bool") and dtype == trt.bool:
-        return torch.bool
-
-    raise RuntimeError(
-        f"Unsupported TensorRT tensor dtype: {dtype}"
-    )
-
-
-def _get_tensorrt_backend():
-    global _model
-    global _trt_runtime
-    global _trt_engine
-    global _trt_context
-    global _trt_input_name
-    global _trt_output_name
-    global _trt_attempted
-    global _trt_error
-    global _active_backend
-    global _model_metadata
-
-    if (
-        _trt_engine is not None
-        and _trt_context is not None
-    ):
-        return _trt_engine, _trt_context
-
-    with _session_lock:
-
-        if (
-            _trt_engine is not None
-            and _trt_context is not None
-        ):
-            return _trt_engine, _trt_context
-
-        if _trt_attempted and _trt_error:
-            raise RuntimeError(_trt_error)
-
-        _trt_attempted = True
-
-        try:
-            import tensorrt as trt
-            import torch
-
-            if not torch.cuda.is_available():
-                raise RuntimeError(
-                    "CUDA is unavailable for Vehicle Re-ID TensorRT"
-                )
-
-            engine_path = (
-                Path(TENSORRT_ENGINE_PATH)
-                .expanduser()
-                .resolve()
-            )
-
-            if not engine_path.is_file():
-                raise RuntimeError(
-                    "Vehicle Re-ID TensorRT engine not found: "
-                    f"{engine_path}"
-                )
-
-            # Validate through the existing INTEL-I TensorRT security gate.
-            try:
-                from ai.tensorrt.runtime import runtime as tensorrt_runtime
-
-                status = tensorrt_runtime.status(
-                    validate_files=True
-                )
-
-                if not status.get("ready"):
-                    raise RuntimeError(
-                        "INTEL-I TensorRT manifest validation failed"
-                    )
-
-                tensorrt_runtime.load_engine(
-                    "vehicle_reid"
-                )
-
-            except Exception as exc:
-                raise RuntimeError(
-                    "Vehicle Re-ID TensorRT manifest validation failed"
-                ) from exc
-
-            logger_trt = trt.Logger(
-                trt.Logger.ERROR
-            )
-
-            runtime = trt.Runtime(
-                logger_trt
-            )
-
-            serialized = engine_path.read_bytes()
-
-            engine = runtime.deserialize_cuda_engine(
-                serialized
-            )
-
-            if engine is None:
-                raise RuntimeError(
-                    "TensorRT failed to deserialize Vehicle Re-ID engine"
-                )
-
-            context = (
-                engine.create_execution_context()
-            )
-
-            if context is None:
-                raise RuntimeError(
-                    "TensorRT failed to create Vehicle Re-ID execution context"
-                )
-
-            input_names = []
-            output_names = []
-
-            for index in range(
-                engine.num_io_tensors
-            ):
-                name = (
-                    engine.get_tensor_name(
-                        index
-                    )
-                )
-
-                mode = (
-                    engine.get_tensor_mode(
-                        name
-                    )
-                )
-
-                if mode == trt.TensorIOMode.INPUT:
-                    input_names.append(name)
-
-                elif mode == trt.TensorIOMode.OUTPUT:
-                    output_names.append(name)
-
-            if len(input_names) != 1:
-                raise RuntimeError(
-                    "Vehicle Re-ID TensorRT engine must have exactly "
-                    f"one input; found {input_names}"
-                )
-
-            if len(output_names) != 1:
-                raise RuntimeError(
-                    "Vehicle Re-ID TensorRT engine must have exactly "
-                    f"one output; found {output_names}"
-                )
-
-            _trt_runtime = runtime
-            _trt_engine = engine
-            _trt_context = context
-            _trt_input_name = input_names[0]
-            _trt_output_name = output_names[0]
-
-            # Compatibility with AnalyticsRuntime registry.
-            _model = engine
-
-            _active_backend = "tensorrt-fp16"
-
-            _model_metadata = {
-                "model_path":
-                    str(engine_path),
-
-                "backend":
-                    "tensorrt-fp16",
-
-                "providers":
-                    ["TensorRT"],
-
-                "input_name":
-                    _trt_input_name,
-
-                "input_shape":
-                    [
-                        -1,
-                        3,
-                        INPUT_HEIGHT,
-                        INPUT_WIDTH,
-                    ],
-
-                "output_name":
-                    _trt_output_name,
-
-                "output_shape":
-                    [
-                        -1,
-                        EMBEDDING_DIM,
-                    ],
-
-                "precision":
-                    "FP16",
-
-                "dynamic_batch":
-                    True,
-            }
-
-            logger.info(
-                "Vehicle Re-ID TensorRT loaded | "
-                "engine=%s input=%s output=%s",
-                engine_path.name,
-                _trt_input_name,
-                _trt_output_name,
-            )
-
-            return (
-                _trt_engine,
-                _trt_context,
-            )
-
-        except Exception as exc:
-
-            _trt_error = (
-                f"{type(exc).__name__}: {exc}"
-            )
-
-            logger.exception(
-                "Vehicle Re-ID TensorRT initialization failed"
-            )
-
-            raise
-
-
-def _run_tensorrt(
-    input_tensor: np.ndarray,
-):
-    import torch
-
-    engine, context = (
-        _get_tensorrt_backend()
-    )
-
-    input_dtype = (
-        _torch_dtype_from_trt(
-            engine.get_tensor_dtype(
-                _trt_input_name
-            )
-        )
-    )
-
-    output_dtype = (
-        _torch_dtype_from_trt(
-            engine.get_tensor_dtype(
-                _trt_output_name
-            )
-        )
-    )
-
-    device = torch.device(
-        "cuda:0"
-    )
-
-    gpu_input = (
-        torch.from_numpy(
-            np.ascontiguousarray(
-                input_tensor
-            )
-        )
-        .to(
-            device=device,
-            dtype=input_dtype,
-            non_blocking=False,
-        )
-        .contiguous()
-    )
-
-    input_shape = tuple(
-        int(x)
-        for x in gpu_input.shape
-    )
-
-    if not context.set_input_shape(
-        _trt_input_name,
-        input_shape,
-    ):
-        raise RuntimeError(
-            "TensorRT rejected Vehicle Re-ID input shape "
-            f"{input_shape}"
-        )
-
-    output_shape = tuple(
-        int(x)
-        for x in context.get_tensor_shape(
-            _trt_output_name
-        )
-    )
-
-    if (
-        not output_shape
-        or any(
-            dimension <= 0
-            for dimension in output_shape
-        )
-    ):
-        raise RuntimeError(
-            "Invalid Vehicle Re-ID TensorRT output shape: "
-            f"{output_shape}"
-        )
-
-    gpu_output = torch.empty(
-        output_shape,
-        dtype=output_dtype,
-        device=device,
-    )
-
-    context.set_tensor_address(
-        _trt_input_name,
-        int(gpu_input.data_ptr()),
-    )
-
-    context.set_tensor_address(
-        _trt_output_name,
-        int(gpu_output.data_ptr()),
-    )
-
-    stream = torch.cuda.current_stream(
-        device=device
-    )
-
-    success = context.execute_async_v3(
-        stream_handle=stream.cuda_stream
-    )
-
-    if not success:
-        raise RuntimeError(
-            "TensorRT Vehicle Re-ID execution returned false"
-        )
-
-    stream.synchronize()
-
-    output = (
-        gpu_output
-        .float()
-        .cpu()
-        .numpy()
-    )
-
-    return [output]
-
-
-def _run_onnx(
-    input_tensor: np.ndarray,
-):
-    session = (
-        get_reid_session()
-    )
-
-    inputs = (
-        session.get_inputs()
-    )
-
-    if not inputs:
-        raise RuntimeError(
-            "Vehicle Re-ID ONNX model has no input"
-        )
-
-    input_name = (
-        inputs[0].name
-    )
-
-    return session.run(
-        None,
-        {
-            input_name:
-                input_tensor
-        },
-    )
-
-
-def _run_reid_backend(
-    input_tensor: np.ndarray,
-):
-    global _active_backend
-
-    if _tensorrt_requested():
-
-        try:
-            result = (
-                _run_tensorrt(
-                    input_tensor
-                )
-            )
-
-            _active_backend = (
-                "tensorrt-fp16"
-            )
-
-            return result
-
-        except Exception:
-
-            if TENSORRT_REQUIRED:
-                raise
-
-            logger.warning(
-                "Vehicle Re-ID TensorRT unavailable; "
-                "falling back to ONNX Runtime",
-                exc_info=True,
-            )
-
-    result = (
-        _run_onnx(
-            input_tensor
-        )
-    )
-
-    session = get_reid_session()
-
-    providers = (
-        session.get_providers()
-    )
-
-    if (
-        "CUDAExecutionProvider"
-        in providers
-    ):
-        _active_backend = (
-            "onnxruntime-cuda"
-        )
-    else:
-        _active_backend = (
-            "onnxruntime-cpu"
-        )
-
-    return result
 
 
 # ============================================================
@@ -985,24 +494,9 @@ def get_reid_session():
 
         _session = session
 
-        global _active_backend
-
-        active_providers = list(
-            session.get_providers()
-        )
-
-        _active_backend = (
-            "onnxruntime-cuda"
-            if "CUDAExecutionProvider" in active_providers
-            else "onnxruntime-cpu"
-        )
-
         _model_metadata = {
             "model_path":
                 validated_model_path,
-
-            "backend":
-                _active_backend,
 
             "providers":
                 list(
@@ -1300,8 +794,22 @@ def preprocess_vehicle(
 
     try:
 
-        input_height = INPUT_HEIGHT
-        input_width = INPUT_WIDTH
+        session = (
+            get_reid_session()
+        )
+
+        input_height, input_width = (
+            _resolve_input_dimensions(
+                session
+            )
+        )
+
+        if (
+            input_height <= 0
+            or input_width <= 0
+        ):
+
+            return None
 
         image = cv2.cvtColor(
             crop,
@@ -1501,12 +1009,34 @@ def get_vehicle_embedding(
 
     try:
 
+        session = (
+            get_reid_session()
+        )
+
+        inputs = (
+            session.get_inputs()
+        )
+
+        if not inputs:
+
+            return None
+
+        input_name = (
+            inputs[0].name
+        )
+
+        if not input_name:
+
+            return None
+
         with _inference_lock:
 
-            outputs = (
-                _run_reid_backend(
-                    input_tensor
-                )
+            outputs = session.run(
+                None,
+                {
+                    input_name:
+                        input_tensor
+                },
             )
 
     except Exception:
@@ -1957,39 +1487,13 @@ def reid_health() -> dict[str, Any]:
         "model_path":
             MODEL_PATH,
 
-        "tensorrt_engine_path":
-            TENSORRT_ENGINE_PATH,
-
-        "tensorrt_engine_exists":
-            Path(
-                TENSORRT_ENGINE_PATH
-            ).expanduser().exists(),
-
         "model_exists":
             Path(
                 MODEL_PATH
             ).expanduser().exists(),
 
         "loaded":
-            (
-                _trt_engine is not None
-                or _session is not None
-            ),
-
-        "backend":
-            _active_backend,
-
-        "engine_loaded":
-            _trt_engine is not None,
-
-        "tensorrt_attempted":
-            _trt_attempted,
-
-        "tensorrt_error":
-            _trt_error,
-
-        "provider_requested":
-            REID_PROVIDER,
+            _session is not None,
 
         "input_width":
             INPUT_WIDTH,
@@ -2014,23 +1518,10 @@ def reid_health() -> dict[str, Any]:
 
         "strong_threshold":
             REID_STRONG_THRESHOLD,
+
     }
 
-    if _trt_engine is not None:
-
-        result[
-            "providers"
-        ] = [
-            "TensorRT"
-        ]
-
-        result[
-            "model_metadata"
-        ] = (
-            get_reid_model_metadata()
-        )
-
-    elif _session is not None:
+    if _session is not None:
 
         try:
 
@@ -2195,37 +1686,11 @@ def validate_reid_configuration() -> dict[str, Any]:
 def reset_reid_session() -> None:
 
     global _session
-    global _model
     global _model_metadata
-
-    global _trt_runtime
-    global _trt_engine
-    global _trt_context
-    global _trt_input_name
-    global _trt_output_name
-    global _trt_attempted
-    global _trt_error
-
-    global _active_backend
 
     with _session_lock:
 
         _session = None
-        _model = None
-
-        _trt_context = None
-        _trt_engine = None
-        _trt_runtime = None
-
-        _trt_input_name = None
-        _trt_output_name = None
-
-        _trt_attempted = False
-        _trt_error = None
-
-        _active_backend = (
-            "uninitialized"
-        )
 
         with _model_metadata_lock:
 
@@ -2238,28 +1703,48 @@ def reset_reid_session() -> None:
 
 def warmup_reid() -> bool:
     """
-    Load the selected backend and execute one real deterministic
-    Vehicle Re-ID inference.
+    Load the model and execute one deterministic inference.
+
+    Useful during worker startup so model failures happen before
+    the camera pipeline starts processing live frames.
     """
 
     try:
+
+        session = (
+            get_reid_session()
+        )
+
+        height, width = (
+            _resolve_input_dimensions(
+                session
+            )
+        )
 
         dummy = np.zeros(
             (
                 1,
                 3,
-                INPUT_HEIGHT,
-                INPUT_WIDTH,
+                height,
+                width,
             ),
             dtype=np.float32,
         )
 
+        input_name = (
+            session
+            .get_inputs()[0]
+            .name
+        )
+
         with _inference_lock:
 
-            outputs = (
-                _run_reid_backend(
-                    dummy
-                )
+            outputs = session.run(
+                None,
+                {
+                    input_name:
+                        dummy
+                },
             )
 
         embedding = (
@@ -2271,8 +1756,8 @@ def warmup_reid() -> bool:
         if embedding is None:
 
             logger.error(
-                "Vehicle Re-ID warmup returned "
-                "invalid embedding"
+                "Vehicle Re-ID warmup "
+                "returned invalid embedding"
             )
 
             return False
@@ -2282,8 +1767,8 @@ def warmup_reid() -> bool:
         ) != EMBEDDING_DIM:
 
             logger.error(
-                "Vehicle Re-ID warmup dimension mismatch: "
-                "%s != %s",
+                "Vehicle Re-ID warmup "
+                "dimension mismatch: %s != %s",
                 len(
                     embedding
                 ),
@@ -2292,26 +1777,8 @@ def warmup_reid() -> bool:
 
             return False
 
-        if not np.all(
-            np.isfinite(
-                embedding
-            )
-        ):
-
-            logger.error(
-                "Vehicle Re-ID warmup returned "
-                "non-finite embedding"
-            )
-
-            return False
-
         logger.info(
-            "Vehicle Re-ID warmup successful | "
-            "backend=%s dimension=%s",
-            _active_backend,
-            len(
-                embedding
-            ),
+            "Vehicle Re-ID warmup successful"
         )
 
         return True

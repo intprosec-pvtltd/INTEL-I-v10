@@ -120,6 +120,13 @@ const NAVIGATION_LINKS = [
     superAdminOnly: true,
   },
   {
+    name: "External Watchlists",
+    shortName: "External Lists",
+    path: "/external-watchlists",
+    icon: Eye,
+    superAdminOnly: true,
+  },
+  {
     name: "Account Security",
     shortName: "Security",
     path: "/account-security",

@@ -59,6 +59,7 @@ from db import model  # noqa: E402,F401
 from db import intelligence_model  # noqa: E402,F401
 from db import advanced_intelligence_model  # noqa: E402,F401
 from db import watchlist_model  # noqa: E402,F401
+from db import external_watchlist_model  # noqa: E402,F401
 
 
 # -------------------------------------------------------------------------

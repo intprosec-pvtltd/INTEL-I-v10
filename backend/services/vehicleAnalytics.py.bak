@@ -1,4 +1,4 @@
-﻿"""Production vehicle analytics orchestration for INTEL-I Phase 9.
+"""Production vehicle analytics orchestration for INTEL-I Phase 9.
 
 Separates detector execution, tracking handoff and observation construction
 from the FastAPI control plane. It does not own correlation or watchlists.
@@ -69,13 +69,8 @@ class VehicleAnalyticsEngine:
             try:
                 # Validate/deserialise through the Phase 7 security gate first.
                 tensorrt_runtime.load_engine("vehicle_detector")
-                from ai.tensorrt.manifest import load_manifest
-
-                manifest_data = load_manifest(tensorrt_runtime.manifest_path)
-                entry = next(
-                    x for x in manifest_data.get("engines", [])
-                    if x.get("role") == "vehicle_detector"
-                )
+                manifest = state["manifest_validation"]["engines"]
+                entry = next(x for x in manifest if x.get("role") == "vehicle_detector")
                 engine_path = str(entry["engine_path"])
                 if not Path(engine_path).is_file():
                     raise RuntimeError("vehicle detector engine file missing")
@@ -161,4 +156,3 @@ class VehicleAnalyticsEngine:
                 "class_ids": list(self._class_ids),
                 "device": self._device,
             }
-

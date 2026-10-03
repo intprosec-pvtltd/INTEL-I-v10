@@ -5,14 +5,14 @@ import tailwindcss from "@tailwindcss/vite";
 /*
  * ============================================================
  * INTEL-I
- * LOCAL FRONTEND -> AWS L40S BACKEND
+ * LOCAL FRONTEND -> LOCAL BACKEND
  * ============================================================
  *
  * Frontend:
  *   http://localhost:5173
  *
- * AWS Backend:
- *   http://52.78.151.3
+ * Local Backend:
+ *   http://127.0.0.1:3000
  *
  * Browser
  *    |
@@ -21,10 +21,7 @@ import tailwindcss from "@tailwindcss/vite";
  *    |
  *    | HTTP / WebSocket proxy
  *    v
- * AWS Nginx :80
- *    |
- *    v
- * FastAPI 127.0.0.1:8000
+ * FastAPI 127.0.0.1:3000
  *
  * IMPORTANT:
  * Do not proxy "/camera" broadly because it can interfere
@@ -32,7 +29,7 @@ import tailwindcss from "@tailwindcss/vite";
  * ============================================================
  */
 
-const BACKEND_URL = "http://16.184.9.123";
+const BACKEND_URL = "http://127.0.0.1:3000";
 
 const proxyTarget = {
   target: BACKEND_URL,
@@ -52,48 +49,19 @@ export default defineConfig({
     strictPort: true,
 
     proxy: {
-      /*
-       * --------------------------------------------------------
-       * WebSocket
-       * --------------------------------------------------------
-       */
       "^/ws(?:/|$)": {
         ...proxyTarget,
         ws: true,
       },
 
-      /*
-       * --------------------------------------------------------
-       * Authentication
-       * --------------------------------------------------------
-       */
       "^/auth(?:/|$)": {
         ...proxyTarget,
       },
 
-      /*
-       * --------------------------------------------------------
-       * Main API
-       * --------------------------------------------------------
-       */
       "^/api(?:/|$)": {
         ...proxyTarget,
       },
 
-      /*
-       * --------------------------------------------------------
-       * Cameras
-       *
-       * This regex matches:
-       *   /camera
-       *   /camera/...
-       *
-       * It DOES NOT match:
-       *   /camera-setup
-       *
-       * Therefore the React camera-setup route remains safe.
-       * --------------------------------------------------------
-       */
       "^/camera(?:/|$)": {
         ...proxyTarget,
       },
@@ -102,11 +70,6 @@ export default defineConfig({
         ...proxyTarget,
       },
 
-      /*
-       * --------------------------------------------------------
-       * Streaming
-       * --------------------------------------------------------
-       */
       "^/stream(?:/|$)": {
         ...proxyTarget,
       },
@@ -119,38 +82,18 @@ export default defineConfig({
         ...proxyTarget,
       },
 
-      /*
-       * --------------------------------------------------------
-       * Video Upload
-       * --------------------------------------------------------
-       */
       "^/video-upload(?:/|$)": {
         ...proxyTarget,
       },
 
-      /*
-       * --------------------------------------------------------
-       * System
-       * --------------------------------------------------------
-       */
       "^/system(?:/|$)": {
         ...proxyTarget,
       },
 
-      /*
-       * --------------------------------------------------------
-       * Alerts
-       * --------------------------------------------------------
-       */
       "^/alerts(?:/|$)": {
         ...proxyTarget,
       },
 
-      /*
-       * --------------------------------------------------------
-       * Evidence / Snapshots
-       * --------------------------------------------------------
-       */
       "^/snapshot(?:/|$)": {
         ...proxyTarget,
       },

@@ -391,6 +391,13 @@ class Alert(Base):
         nullable=True,
     )
 
+    # External source attribution is retained with the alert even if a source is later removed.
+    watchlist_source_id = Column(BigInteger, nullable=True, index=True)
+    watchlist_source_name = Column(String(150), nullable=True)
+    external_record_id = Column(String(200), nullable=True)
+    case_reference = Column(String(200), nullable=True)
+    entity_type = Column(String(20), nullable=True)
+
     track_id = Column(
         String(100),
         nullable=True,

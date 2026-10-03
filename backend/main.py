@@ -147,6 +147,7 @@ from routers.camera_onboarding import (
     router as camera_onboarding_router,
     set_onboarding_progress_sender,
 )
+from routers.external_watchlists import router as external_watchlists_router
 from db.auth_security_model import UserMFA
 from schemas.auth_security import MFAChallengeResponse, MFALoginVerifyRequest
 from services.authSecurityService import verify_mfa
@@ -334,6 +335,7 @@ app.include_router(ingest_router)
 app.include_router(reports_router)
 app.include_router(auth_security_router)
 app.include_router(camera_onboarding_router)
+app.include_router(external_watchlists_router)
 
 ENV = os.getenv("ENV", "dev").strip().lower()
 IS_PROD = ENV == "prod"
@@ -2234,6 +2236,11 @@ async def _camera_health_watchdog():
 
 @app.on_event("startup")
 async def startup_event():
+    try:
+        from integrations.government_watchlist.scheduler import start_scheduler
+        start_scheduler()
+    except Exception:
+        logger.exception("External watchlist scheduler did not start; core API remains available")
     # OpenSearch is an optional production search/RAG dependency. When marked
     # required, startup fails closed instead of advertising a false READY state.
     try:
@@ -2412,6 +2419,11 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    try:
+        from integrations.government_watchlist.scheduler import stop_scheduler
+        stop_scheduler()
+    except Exception:
+        logger.exception("External watchlist scheduler shutdown failed")
     # Distributed live-camera workers are independent processes and must not be
     # terminated when an API pod restarts. Local upload/legacy workers still
     # belong to this process and are drained normally.
@@ -5884,6 +5896,11 @@ def _run_person_watchlist_match(
                 quality=float(face.get("detection_score") or score or 0.0),
                 successful=True, ttl_seconds=60.0,
             )
+            external_meta = entry.metadata_json if isinstance(entry.metadata_json, dict) else {}
+            external_info = external_meta.get('external_watchlist') if isinstance(external_meta.get('external_watchlist'), dict) else {}
+            external_source_id = external_meta.get('external_source_id')
+            external_record_id = entry.external_reference.removeprefix('extwl:').split(':', 1)[-1] if str(entry.external_reference or '').startswith('extwl:') else None
+            external_case_reference = external_info.get('case_reference')
             level='HIGH' if entry.category in {'MISSING','WANTED'} else 'LOW'
             rule='PERSON_WATCHLIST_MISSING' if entry.category=='MISSING' else 'PERSON_WATCHLIST_WANTED' if entry.category=='WANTED' else 'PERSON_WATCHLIST_MATCH'
             alert_track_id=f'person-watchlist-{int(entry.id)}'
@@ -5894,6 +5911,11 @@ def _run_person_watchlist_match(
                 confidence_score=float(score),
             )
             if not created or obj is None:continue
+            obj.watchlist_source_id = external_source_id
+            obj.watchlist_source_name = entry.source
+            obj.external_record_id = external_record_id
+            obj.case_reference = external_case_reference
+            obj.entity_type = 'PERSON'
             clean_snapshot_frame = snapshot_frame if snapshot_frame is not None else frame
             snap=save_snapshot_to_db(db,int(obj.id),crop_and_encode_snapshot(clean_snapshot_frame,face['box'])); sid=int(snap.id) if snap else None
             # The enrolled entry is the durable identity anchor. A transient
@@ -5932,7 +5954,7 @@ def _run_person_watchlist_match(
                 related_incident_ids=list(previous_journey.get('related_incident_ids') or [])
                 if previous_incident is not None:related_incident_ids.append(int(previous_incident.id))
                 related_incident_ids=list(dict.fromkeys(related_incident_ids))[-100:]
-                journey={'identity_type':'PERSON','identity_id':identity_key,'global_person_id':global_person_id,'person_watchlist_entry_id':int(entry.id),'watchlist_person_name':entry.full_name,'reference':entry.full_name,'reference_image_available':bool(entry.reference_image_data),'reference_image_url':f'/api/intelligence/person-watchlist/{int(entry.id)}/image' if entry.reference_image_data else None,'category':entry.category,'tracking_status':'ACTIVE_TRACKING' if len(combined_route)>1 else 'WAITING_FOR_NEXT_CAMERA','first_camera_id':previous_journey.get('first_camera_id') or str(camID),'last_camera_id':str(camID),'first_seen':previous_journey.get('first_seen') or observation['timestamp'],'last_seen':observation['timestamp'],'camera_count':len({str(item.get('camera_id')) for item in combined_route}),'observation_count':int(previous_journey.get('observation_count') or 0)+1,'previous_incident_id':int(previous_incident.id) if previous_incident is not None else None,'related_incident_ids':related_incident_ids,'route':combined_route}
+                journey={'identity_type':'PERSON','identity_id':identity_key,'global_person_id':global_person_id,'person_watchlist_entry_id':int(entry.id),'watchlist_person_name':entry.full_name,'reference':entry.full_name,'reference_image_available':bool(entry.reference_image_data),'reference_image_url':f'/api/intelligence/person-watchlist/{int(entry.id)}/image' if entry.reference_image_data else None,'category':entry.category,'watchlist_source_name':entry.source,'watchlist_source_id':external_source_id,'external_record_id':external_record_id,'case_reference':external_case_reference,'tracking_status':'ACTIVE_TRACKING' if len(combined_route)>1 else 'WAITING_FOR_NEXT_CAMERA','first_camera_id':previous_journey.get('first_camera_id') or str(camID),'last_camera_id':str(camID),'first_seen':previous_journey.get('first_seen') or observation['timestamp'],'last_seen':observation['timestamp'],'camera_count':len({str(item.get('camera_id')) for item in combined_route}),'observation_count':int(previous_journey.get('observation_count') or 0)+1,'previous_incident_id':int(previous_incident.id) if previous_incident is not None else None,'related_incident_ids':related_incident_ids,'route':combined_route}
                 detection_location=camera_location_name or camera_name or str(camID)
                 inc=Incident(user_id=int(user_id),cam_id=str(camID),primary_track_id=identity_key,incident_type=rule,status='OPEN',evaluation_status='PENDING',evaluation_severity=level,evaluation_confidence=float(score),evaluation_reason=f'Watchlist person {entry.full_name} detected in {detection_location}',evaluation_evidence={'watchlist_journey':journey})
                 db.add(inc);db.flush()
@@ -5940,7 +5962,7 @@ def _run_person_watchlist_match(
                 evidence_state=dict(inc.evaluation_evidence) if isinstance(inc.evaluation_evidence,dict) else {}
                 journey=dict(evidence_state.get('watchlist_journey') or {});route=list(journey.get('route') or [])
                 observation['sequence']=int(journey.get('observation_count') or len(route))+1;route.append(observation)
-                journey.update({'identity_type':'PERSON','identity_id':identity_key,'global_person_id':global_person_id or journey.get('global_person_id'),'person_watchlist_entry_id':int(entry.id),'watchlist_person_name':entry.full_name,'reference':entry.full_name,'reference_image_available':bool(entry.reference_image_data),'reference_image_url':f'/api/intelligence/person-watchlist/{int(entry.id)}/image' if entry.reference_image_data else None,'category':entry.category,'tracking_status':'ACTIVE_TRACKING' if len(route)>1 else 'WAITING_FOR_NEXT_CAMERA','first_camera_id':journey.get('first_camera_id') or str(camID),'last_camera_id':str(camID),'first_seen':journey.get('first_seen') or observation['timestamp'],'last_seen':observation['timestamp'],'camera_count':len({str(item.get('camera_id')) for item in route}),'observation_count':int(journey.get('observation_count') or 0)+1,'route':route[-200:]})
+                journey.update({'identity_type':'PERSON','identity_id':identity_key,'global_person_id':global_person_id or journey.get('global_person_id'),'person_watchlist_entry_id':int(entry.id),'watchlist_person_name':entry.full_name,'reference':entry.full_name,'reference_image_available':bool(entry.reference_image_data),'reference_image_url':f'/api/intelligence/person-watchlist/{int(entry.id)}/image' if entry.reference_image_data else None,'category':entry.category,'watchlist_source_name':entry.source,'watchlist_source_id':external_source_id,'external_record_id':external_record_id,'case_reference':external_case_reference,'tracking_status':'ACTIVE_TRACKING' if len(route)>1 else 'WAITING_FOR_NEXT_CAMERA','first_camera_id':journey.get('first_camera_id') or str(camID),'last_camera_id':str(camID),'first_seen':journey.get('first_seen') or observation['timestamp'],'last_seen':observation['timestamp'],'camera_count':len({str(item.get('camera_id')) for item in route}),'observation_count':int(journey.get('observation_count') or 0)+1,'route':route[-200:]})
                 evidence_state['watchlist_journey']=journey;inc.evaluation_evidence=evidence_state;inc.cam_id=str(camID);inc.evaluation_confidence=max(float(inc.evaluation_confidence or 0.0),float(score))
             reference_snapshot_id=journey.get('reference_snapshot_id')
             try:reference_snapshot_id=int(reference_snapshot_id) if reference_snapshot_id is not None else None
@@ -5957,11 +5979,11 @@ def _run_person_watchlist_match(
                 evidence_state=dict(inc.evaluation_evidence) if isinstance(inc.evaluation_evidence,dict) else {};evidence_state['watchlist_journey']=journey;inc.evaluation_evidence=evidence_state
             detection_location=camera_location_name or camera_name or str(camID)
             detection_message=f'Watchlist person {entry.full_name} detected in {detection_location}'
-            db.add(IncidentEvidence(incident_id=int(inc.id),user_id=int(user_id),alert_id=int(obj.id),snapshot_id=sid,evidence_type='SNAPSHOT' if sid else 'ALERT',object_type='PERSON',object_reference=entry.full_name,description=detection_message,metadata_json={'match_score':float(score),'global_person_id':global_person_id,'person_watchlist_entry_id':int(entry.id),'watchlist_person_name':entry.full_name,'watchlist_category':entry.category,'evidence_role':'CAMERA_DETECTION','journey_observation':observation}))
+            db.add(IncidentEvidence(incident_id=int(inc.id),user_id=int(user_id),alert_id=int(obj.id),snapshot_id=sid,evidence_type='SNAPSHOT' if sid else 'ALERT',object_type='PERSON',object_reference=entry.full_name,description=detection_message,metadata_json={'match_score':float(score),'global_person_id':global_person_id,'person_watchlist_entry_id':int(entry.id),'watchlist_person_name':entry.full_name,'watchlist_category':entry.category,'watchlist_source_name':entry.source,'watchlist_source_id':external_source_id,'external_record_id':external_record_id,'case_reference':external_case_reference,'evidence_role':'CAMERA_DETECTION','journey_observation':observation}))
             existing_reference_evidence=db.query(IncidentEvidence).filter(IncidentEvidence.incident_id==int(inc.id),IncidentEvidence.user_id==int(user_id),IncidentEvidence.evidence_type=='WATCHLIST_REFERENCE').first()
             if reference_snapshot_id and existing_reference_evidence is None:
                 db.add(IncidentEvidence(incident_id=int(inc.id),user_id=int(user_id),alert_id=int(obj.id),snapshot_id=int(reference_snapshot_id),evidence_type='WATCHLIST_REFERENCE',object_type='PERSON',object_reference=entry.full_name,description=f'User-uploaded watchlist reference image for {entry.full_name}',metadata_json={'person_watchlist_entry_id':int(entry.id),'watchlist_person_name':entry.full_name,'watchlist_category':entry.category,'evidence_role':'WATCHLIST_REFERENCE'}))
-            payload={'type':'alert','event':'PERSON_WATCHLIST_MATCH','id':int(obj.id),'alert_id':int(obj.id),'incident_id':int(inc.id),'incident_created':created_incident,'watchlist_journey':journey,'global_person_id':global_person_id,'user_id':int(user_id),'cam_id':str(camID),'camera_id':str(camID),'camera_name':camera_name,'source_type':source_type,'zone':camera_location_name,'location_name':camera_location_name,'track_id':alert_track_id,'alert_type':level,'alert_level':level,'level':level,'severity':level,'rule':rule,'alert_rule':rule,'person_watchlist_entry_id':int(entry.id),'watchlist_entry_id':int(entry.id),'person_name':entry.full_name,'watchlist_person_name':entry.full_name,'person_category':entry.category,'watchlist_category':entry.category,'match_type':'FACE_THRESHOLD','watchlist_match_type':'FACE_THRESHOLD','match_confidence':float(score),'watchlist_match_confidence':float(score),'reference_snapshot_id':int(reference_snapshot_id) if reference_snapshot_id else None,'reference_snapshot_path':f'/snapshot/{int(reference_snapshot_id)}' if reference_snapshot_id else None,'reference_image_url':f'/api/intelligence/person-watchlist/{int(entry.id)}/image' if entry.reference_image_data else None,'snapshot_id':sid,'snapshot_path':f'/snapshot/{sid}' if sid else None,'snapshot_saved':bool(sid),'has_snapshot':bool(sid),'message':detection_message,'created_at':time.time()}
+            payload={'type':'alert','event':'PERSON_WATCHLIST_MATCH','id':int(obj.id),'alert_id':int(obj.id),'incident_id':int(inc.id),'incident_created':created_incident,'watchlist_journey':journey,'global_person_id':global_person_id,'user_id':int(user_id),'cam_id':str(camID),'camera_id':str(camID),'camera_name':camera_name,'source_type':source_type,'zone':camera_location_name,'location_name':camera_location_name,'track_id':alert_track_id,'alert_type':level,'alert_level':level,'level':level,'severity':level,'rule':rule,'alert_rule':rule,'person_watchlist_entry_id':int(entry.id),'watchlist_entry_id':int(entry.id),'person_name':entry.full_name,'watchlist_person_name':entry.full_name,'person_category':entry.category,'watchlist_category':entry.category,'watchlist_source_name':entry.source,'watchlist_source_id':external_source_id,'external_record_id':external_record_id,'case_reference':external_case_reference,'match_type':'FACE_THRESHOLD','watchlist_match_type':'FACE_THRESHOLD','match_confidence':float(score),'watchlist_match_confidence':float(score),'reference_snapshot_id':int(reference_snapshot_id) if reference_snapshot_id else None,'reference_snapshot_path':f'/snapshot/{int(reference_snapshot_id)}' if reference_snapshot_id else None,'reference_image_url':f'/api/intelligence/person-watchlist/{int(entry.id)}/image' if entry.reference_image_data else None,'snapshot_id':sid,'snapshot_path':f'/snapshot/{sid}' if sid else None,'snapshot_saved':bool(sid),'has_snapshot':bool(sid),'message':detection_message,'created_at':time.time()}
             db.add(OutboxEvent(topic=os.getenv('KAFKA_SAVED_ALERT_TOPIC','cctv.alerts.saved'),event_key=str(obj.id),payload=json.dumps(payload,default=str),status='PENDING',attempts=0,next_attempt_at=indian_time()))
             db.commit()
             durable_ws = os.getenv('KAFKA_ENABLED','false').strip().lower() in {'1','true','yes','on'} and os.getenv('KAFKA_SAVED_ALERT_WS_ENABLED','true').strip().lower() in {'1','true','yes','on'}
@@ -11308,6 +11330,11 @@ def serialize_alert(alert):
         "watchlist_match_type": getattr(alert, "watchlist_match_type", None),
         "watchlist_match_confidence": getattr(alert, "watchlist_match_confidence", None),
         "watchlist_version": getattr(alert, "watchlist_version", None),
+        "watchlist_source_id": getattr(alert, "watchlist_source_id", None),
+        "watchlist_source_name": getattr(alert, "watchlist_source_name", None),
+        "external_record_id": getattr(alert, "external_record_id", None),
+        "case_reference": getattr(alert, "case_reference", None),
+        "entity_type": getattr(alert, "entity_type", None),
     }
 
 

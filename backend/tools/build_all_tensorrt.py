@@ -1,0 +1,391 @@
+﻿from __future__ import annotations
+
+import hashlib
+import json
+import os
+import shutil
+import struct
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+MODELS = ROOT / "models"
+TRT_DIR = MODELS / "tensorrt"
+TRT_DIR.mkdir(parents=True, exist_ok=True)
+
+RESULTS = []
+
+
+def sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for block in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def result(role: str, status: str, detail: str = "", engine: Path | None = None):
+    row = {
+        "role": role,
+        "status": status,
+        "detail": detail,
+        "engine": str(engine) if engine else None,
+    }
+    RESULTS.append(row)
+    print(f"[{status}] {role}: {detail}")
+
+
+def validate_ultralytics_engine(path: Path) -> bool:
+    import tensorrt as trt
+
+    data = path.read_bytes()
+
+    # Ultralytics wrapper:
+    # [4-byte little endian JSON metadata size][metadata][native TRT engine]
+    if len(data) > 8:
+        metadata_len = struct.unpack("<I", data[:4])[0]
+        if 0 < metadata_len < len(data) - 4:
+            metadata = data[4:4 + metadata_len]
+            if metadata.lstrip().startswith(b"{"):
+                try:
+                    json.loads(metadata.decode("utf-8"))
+                    data = data[4 + metadata_len:]
+                except Exception:
+                    pass
+
+    logger = trt.Logger(trt.Logger.ERROR)
+    runtime = trt.Runtime(logger)
+    engine = runtime.deserialize_cuda_engine(data)
+
+    return engine is not None
+
+
+def export_yolo(
+    role: str,
+    source: Path,
+    output: Path,
+    imgsz: int = 640,
+    batch: int = 1,
+    dynamic: bool = False,
+):
+    if not source.is_file():
+        result(role, "FAIL", f"source missing: {source}")
+        return
+
+    print()
+    print("=" * 80)
+    print(f"BUILDING {role}")
+    print(f"SOURCE: {source}")
+    print("=" * 80)
+
+    try:
+        from ultralytics import YOLO
+
+        model = YOLO(str(source))
+
+        exported = model.export(
+            format="engine",
+            half=True,
+            dynamic=dynamic,
+            batch=max(1, batch),
+            imgsz=imgsz,
+            device=0,
+            workspace=1,
+            nms=False,
+            simplify=True,
+        )
+
+        exported = Path(str(exported)).resolve()
+
+        if not exported.is_file():
+            raise RuntimeError(f"export output missing: {exported}")
+
+        if exported != output:
+            if output.exists():
+                output.unlink()
+            shutil.move(str(exported), str(output))
+
+        if not validate_ultralytics_engine(output):
+            raise RuntimeError("native TensorRT deserialization validation failed")
+
+        result(
+            role,
+            "PASS",
+            f"FP16 TensorRT engine validated ({output.stat().st_size / 1024 / 1024:.2f} MB)",
+            output,
+        )
+
+    except Exception as exc:
+        result(role, "FAIL", repr(exc))
+
+
+def build_reid_onnx(role: str, source: Path, output: Path):
+    if not source.is_file():
+        result(role, "FAIL", f"source missing: {source}")
+        return
+
+    print()
+    print("=" * 80)
+    print(f"BUILDING {role}")
+    print(f"SOURCE: {source}")
+    print("=" * 80)
+
+    try:
+        import tensorrt as trt
+
+        logger = trt.Logger(trt.Logger.WARNING)
+        builder = trt.Builder(logger)
+
+        if hasattr(trt.NetworkDefinitionCreationFlag, "EXPLICIT_BATCH"):
+            network_flags = 1 << int(
+                trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH
+            )
+        else:
+            # TensorRT 10/11: explicit batch is the default network mode.
+            network_flags = 0
+
+        network = builder.create_network(network_flags)
+
+        parser = trt.OnnxParser(network, logger)
+
+        onnx_bytes = source.read_bytes()
+
+        if not parser.parse(onnx_bytes):
+            errors = []
+            for i in range(parser.num_errors):
+                errors.append(str(parser.get_error(i)))
+            raise RuntimeError(
+                "ONNX parse failed: " + " | ".join(errors)
+            )
+
+        config = builder.create_builder_config()
+
+        # TensorRT 10/11 FP16 handling.
+        if hasattr(trt.BuilderFlag, "FP16"):
+            config.set_flag(trt.BuilderFlag.FP16)
+
+        # 1 GiB workspace.
+        if hasattr(config, "set_memory_pool_limit"):
+            config.set_memory_pool_limit(
+                trt.MemoryPoolType.WORKSPACE,
+                1 << 30,
+            )
+
+        # OSNet Re-ID ONNX has fully dynamic BCHW input dimensions.
+        # Match the actual INTEL-I runtime preprocessing:
+        # width=208, height=208, embedding_dim=512.
+        input_tensor = network.get_input(0)
+
+        profile = builder.create_optimization_profile()
+
+        profile.set_shape(
+            input_tensor.name,
+            min=(1, 3, 208, 208),
+            opt=(4, 3, 208, 208),
+            max=(16, 3, 208, 208),
+        )
+
+        config.add_optimization_profile(profile)
+
+        serialized = builder.build_serialized_network(network, config)
+
+        if serialized is None:
+            raise RuntimeError("TensorRT returned no serialized network")
+
+        output.write_bytes(bytes(serialized))
+
+        runtime = trt.Runtime(logger)
+        engine = runtime.deserialize_cuda_engine(output.read_bytes())
+
+        if engine is None:
+            raise RuntimeError("TensorRT engine deserialization failed")
+
+        result(
+            role,
+            "PASS",
+            f"FP16 TensorRT engine validated ({output.stat().st_size / 1024 / 1024:.2f} MB)",
+            output,
+        )
+
+    except Exception as exc:
+        result(role, "FAIL", repr(exc))
+
+
+def update_manifest():
+    manifest_path = TRT_DIR / "all_models_manifest.json"
+
+    rows = []
+
+    source_map = {
+        "primary_detector": MODELS / "yolov8m.pt",
+        "vehicle_detector": MODELS / "yolov8m.pt",
+        "plate_detector": MODELS / "license_plate_yolov8m.pt",
+        "pose_detector": MODELS / "yolov8m-pose.pt",
+        "suspicious_activity": MODELS / "Suspicious_Activities_nano.pt",
+        "ppe_mask": MODELS / "best.pt",
+        "vehicle_reid": MODELS / "osnet_ain_x1_0_vehicle_reid.onnx",
+    }
+
+    for r in RESULTS:
+        if r["status"] != "PASS" or not r.get("engine"):
+            continue
+
+        engine = Path(r["engine"])
+        source = source_map.get(r["role"])
+
+        rows.append({
+            "role": r["role"],
+            "source_model": str(source) if source else None,
+            "engine_path": str(engine),
+            "engine_sha256": sha256(engine),
+            "source_sha256": sha256(source) if source and source.is_file() else None,
+            "precision": "FP16",
+            "runtime_validated": True,
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        })
+
+    manifest = {
+        "schema_version": 1,
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "engines": rows,
+        "results": RESULTS,
+    }
+
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2),
+        encoding="utf-8",
+    )
+
+    print(f"\nManifest written: {manifest_path}")
+
+
+def main():
+    print("=" * 80)
+    print("INTEL-I ALL MODEL TENSORRT BUILDER")
+    print("=" * 80)
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise SystemExit("CUDA GPU is required")
+
+    print("GPU:", torch.cuda.get_device_name(0))
+
+    try:
+        import tensorrt as trt
+        print("TensorRT:", trt.__version__)
+    except Exception as exc:
+        raise SystemExit(f"TensorRT unavailable: {exc}")
+
+    # 1 — VEHICLE
+    export_yolo(
+        "vehicle_detector",
+        MODELS / "yolov8m.pt",
+        TRT_DIR / "vehicle_detector.engine",
+        imgsz=640,
+        batch=1,
+        dynamic=False,
+    )
+
+    # 3 — PLATE
+    export_yolo(
+        "plate_detector",
+        MODELS / "license_plate_yolov8m.pt",
+        TRT_DIR / "plate_detector.engine",
+        imgsz=640,
+        batch=1,
+        dynamic=False,
+    )
+
+    # 4 — POSE
+    export_yolo(
+        "pose_detector",
+        MODELS / "yolov8m-pose.pt",
+        TRT_DIR / "pose_detector.engine",
+        imgsz=640,
+        batch=4,
+        dynamic=True,
+    )
+
+    # 5 — SUSPICIOUS ACTIVITY
+    export_yolo(
+        "suspicious_activity",
+        MODELS / "Suspicious_Activities_nano.pt",
+        TRT_DIR / "suspicious_activity.engine",
+        imgsz=640,
+        batch=4,
+        dynamic=True,
+    )
+
+    # 6 — PPE / MASK
+    export_yolo(
+        "ppe_mask",
+        MODELS / "best.pt",
+        TRT_DIR / "ppe_mask.engine",
+        imgsz=640,
+        batch=4,
+        dynamic=True,
+    )
+
+    # 7 — VEHICLE RE-ID
+    build_reid_onnx(
+        "vehicle_reid",
+        MODELS / "osnet_ain_x1_0_vehicle_reid.onnx",
+        TRT_DIR / "vehicle_reid.engine",
+    )
+
+    # PRIMARY MUST BE BUILT LAST.
+    # vehicle_detector uses the same yolov8m.pt source and Ultralytics
+    # initially exports to models\yolov8m.engine.
+    export_yolo(
+        "primary_detector",
+        MODELS / "yolov8m.pt",
+        MODELS / "yolov8m.engine",
+        imgsz=640,
+        batch=4,
+        dynamic=True,
+    )
+
+    # Current INTEL-I runtime does not yet execute these through TRT.
+    result(
+        "frs_yunet_sface",
+        "SKIPPED",
+        "Current FRS runtime uses OpenCV YuNet/SFace; TensorRT runtime integration must be implemented before conversion is considered production-ready.",
+    )
+
+    result(
+        "vehicle_attributes",
+        "SKIPPED",
+        "Current vehicle attribute runtime uses PaddleX PP-LCNet; TensorRT runtime integration must be implemented before conversion is considered production-ready.",
+    )
+
+    update_manifest()
+
+    print()
+    print("=" * 80)
+    print("FINAL RESULT")
+    print("=" * 80)
+
+    for r in RESULTS:
+        print(f"{r['role']:<28} {r['status']:<10} {r['detail']}")
+
+    failures = [r for r in RESULTS if r["status"] == "FAIL"]
+
+    print()
+    print(f"PASS    : {sum(r['status']=='PASS' for r in RESULTS)}")
+    print(f"FAIL    : {len(failures)}")
+    print(f"SKIPPED : {sum(r['status']=='SKIPPED' for r in RESULTS)}")
+
+    if failures:
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+

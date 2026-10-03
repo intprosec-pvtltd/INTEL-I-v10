@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -79,28 +79,8 @@ class TensorRTEngineRuntime:
 
             logger = trt.Logger(trt.Logger.ERROR)
             runtime = trt.Runtime(logger)
-
             engine_bytes = Path(entry["engine_path"]).read_bytes()
-
-            # Ultralytics TensorRT exports prepend:
-            # [4-byte little-endian metadata length][JSON metadata][native TRT engine].
-            # Raw TensorRT engines do not contain this wrapper.
-            if len(engine_bytes) > 8:
-                metadata_len = int.from_bytes(engine_bytes[:4], byteorder="little", signed=False)
-
-                if 0 < metadata_len < (len(engine_bytes) - 4):
-                    metadata_end = 4 + metadata_len
-                    metadata_bytes = engine_bytes[4:metadata_end]
-
-                    if metadata_bytes.lstrip().startswith(b"{"):
-                        try:
-                            json.loads(metadata_bytes.decode("utf-8"))
-                            engine_bytes = engine_bytes[metadata_end:]
-                        except (UnicodeDecodeError, json.JSONDecodeError):
-                            pass
-
             engine = runtime.deserialize_cuda_engine(engine_bytes)
-
             if engine is None:
                 raise RuntimeError(f"TensorRT failed to deserialize engine: {entry['engine_path']}")
             self._engines[role] = engine
@@ -109,4 +89,3 @@ class TensorRTEngineRuntime:
 
 
 runtime = TensorRTEngineRuntime()
-

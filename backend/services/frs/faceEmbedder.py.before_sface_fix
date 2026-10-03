@@ -19,41 +19,10 @@ class OnnxFaceEmbedder:
     def preprocess(face: np.ndarray) -> np.ndarray:
         if not isinstance(face, np.ndarray) or face.size == 0:
             raise ValueError("face image is empty")
-
-        # OpenCV SFace-compatible preprocessing for
-        # face_recognition_sface_2021dec.onnx:
-        #
-        #   aligned BGR face
-        #       -> resize 112x112
-        #       -> BGR to RGB
-        #       -> float32
-        #       -> CHW
-        #       -> NCHW
-        #
-        # IMPORTANT:
-        # Do NOT normalize to [-1, 1].
-        # This ONNX graph expects raw RGB values in the 0..255 range.
-        image = cv2.resize(
-            face,
-            (112, 112),
-            interpolation=cv2.INTER_LINEAR,
-        )
-
-        image = cv2.cvtColor(
-            image,
-            cv2.COLOR_BGR2RGB,
-        ).astype(
-            np.float32,
-            copy=False,
-        )
-
-        return np.ascontiguousarray(
-            np.transpose(
-                image,
-                (2, 0, 1),
-            )[None, ...],
-            dtype=np.float32,
-        )
+        image = cv2.resize(face, (112, 112), interpolation=cv2.INTER_LINEAR)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32)
+        image = (image - 127.5) / 127.5
+        return np.transpose(image, (2, 0, 1))[None, ...]
 
     def embed(self, face: np.ndarray) -> np.ndarray:
         output = self.session.run(None, {self.input.name: self.preprocess(face)})[0]

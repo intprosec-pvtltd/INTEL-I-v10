@@ -606,3 +606,36 @@ vehicle_pipeline_errors_total = Counter(
     "Vehicle pipeline stage failures",
     ["stage"],
 )
+
+# External government watchlist connector metrics. Source IDs are bounded by
+# administrator-created connectors; credentials and endpoint URLs are never labels.
+external_watchlist_sync_total = Counter(
+    "intel_i_watchlist_sync_total",
+    "External watchlist synchronization attempts",
+    ["result", "source_id"],
+)
+external_watchlist_sync_failures_total = Counter(
+    "intel_i_watchlist_sync_failures_total",
+    "External watchlist synchronization failures",
+    ["source_id"],
+)
+external_watchlist_records = Gauge(
+    "intel_i_watchlist_records",
+    "Active synchronized records by type",
+    ["source_id", "entity_type"],
+)
+external_watchlist_sync_duration_seconds = Histogram(
+    "intel_i_watchlist_sync_duration_seconds",
+    "External watchlist synchronization duration",
+    ["source_id"],
+)
+external_watchlist_last_success_timestamp = Gauge(
+    "intel_i_watchlist_last_success_timestamp",
+    "Unix timestamp of the last successful external watchlist sync",
+    ["source_id"],
+)
+external_watchlist_source_up = Gauge(
+    "intel_i_watchlist_source_up",
+    "Whether an external watchlist source is enabled and last responded successfully",
+    ["source_id"],
+)
